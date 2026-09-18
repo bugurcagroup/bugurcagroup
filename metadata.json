@@ -1,0 +1,6 @@
+{
+  "name": "Buğurca Kırtasiye",
+  "description": "Çok satıcılı, merkezden yönetilen bayi ve komisyon bazlı hibrit kırtasiye e-ticaret platformu.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,180 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function hasRole(role) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+
+    function isAdmin() {
+      return hasRole('admin');
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isDealerOrderOwner() {
+      return hasRole('bayi')
+        && resource.data.dealerId is string
+        && exists(/databases/$(database)/documents/dealers/$(resource.data.dealerId))
+        && (
+          get(/databases/$(database)/documents/dealers/$(resource.data.dealerId)).data.userId == request.auth.uid
+          || get(/databases/$(database)/documents/dealers/$(resource.data.dealerId)).data.email == request.auth.token.email
+        );
+    }
+
+    match /products/{productId} {
+      allow read: if true;
+      allow create: if isAdmin() || (
+        hasRole('bayi')
+        && request.resource.data.dealerId is string
+        && exists(/databases/$(database)/documents/dealers/$(request.resource.data.dealerId))
+        && (
+          get(/databases/$(database)/documents/dealers/$(request.resource.data.dealerId)).data.userId == request.auth.uid
+          || get(/databases/$(database)/documents/dealers/$(request.resource.data.dealerId)).data.email == request.auth.token.email
+        )
+      );
+      allow update: if isAdmin() || (
+        hasRole('bayi')
+        && resource.data.dealerId == request.resource.data.dealerId
+        && exists(/databases/$(database)/documents/dealers/$(resource.data.dealerId))
+        && (
+          get(/databases/$(database)/documents/dealers/$(resource.data.dealerId)).data.userId == request.auth.uid
+          || get(/databases/$(database)/documents/dealers/$(resource.data.dealerId)).data.email == request.auth.token.email
+        )
+      );
+      allow delete: if isAdmin() || (
+        hasRole('bayi')
+        && resource.data.dealerId is string
+        && exists(/databases/$(database)/documents/dealers/$(resource.data.dealerId))
+        && (
+          get(/databases/$(database)/documents/dealers/$(resource.data.dealerId)).data.userId == request.auth.uid
+          || get(/databases/$(database)/documents/dealers/$(resource.data.dealerId)).data.email == request.auth.token.email
+        )
+      );
+    }
+
+    match /dealers/{dealerId} {
+      allow read: if isAdmin() || (
+        signedIn() && resource != null && (
+          resource.data.userId == request.auth.uid
+          || resource.data.email == request.auth.token.email
+        )
+      );
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (
+        signedIn() && resource != null && (
+          resource.data.userId == request.auth.uid
+          || resource.data.email == request.auth.token.email
+        )
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /dealer_public/{dealerId} {
+      allow read: if true;
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /dealer_applications/{applicationId} {
+      allow create: if request.resource.data.keys().hasOnly([
+        'name', 'owner', 'sector', 'city', 'district', 'address', 'phone', 'email', 'status', 'createdAt'
+      ])
+        && request.resource.data.status == 'pending'
+        && request.resource.data.name is string
+        && request.resource.data.owner is string
+        && request.resource.data.email is string;
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if (
+        isOwner(userId)
+        && request.resource.data.uid == userId
+        && request.resource.data.role == 'customer'
+      ) || (
+        isAdmin()
+        && request.resource.data.keys().hasOnly([
+          'uid', 'role', 'dealerId', 'displayName', 'companyName', 'email', 'phone', 'createdAt'
+        ])
+        && request.resource.data.uid == userId
+        && request.resource.data.dealerId is string
+        && request.resource.data.role == 'bayi'
+        && request.resource.data.displayName is string
+        && request.resource.data.companyName is string
+        && request.resource.data.email is string
+      );
+      allow update: if isAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role);
+      allow delete: if isAdmin();
+    }
+
+    match /orders/{orderId} {
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow read: if isAdmin()
+        || (signedIn() && (
+          resource.data.userId == request.auth.uid
+          || resource.data.customerEmail == request.auth.token.email
+        ))
+        || isDealerOrderOwner();
+      allow update: if isAdmin()
+        || (signedIn() && resource.data.userId == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['shippingAddress', 'shippingPhone', 'customerDownloaded', 'memberHidden']))
+        || (isDealerOrderOwner()
+            && request.resource.data.dealerId == resource.data.dealerId
+            && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['shippingStatus', 'shippingCompany', 'shippingTrackingNumber',
+                         'status', 'updatedAt']));
+      allow delete: if isAdmin();
+    }
+
+    match /commission_requests/{requestId} {
+      allow create: if hasRole('bayi') && request.resource.data.dealerUserId == request.auth.uid;
+      allow read: if isAdmin() || (
+        hasRole('bayi')
+        && (
+          resource.data.dealerUserId == request.auth.uid
+          || (
+            resource.data.dealerId is string
+            && exists(/databases/$(database)/documents/dealers/$(resource.data.dealerId))
+            && get(/databases/$(database)/documents/dealers/$(resource.data.dealerId)).data.userId == request.auth.uid
+          )
+        )
+      );
+      allow update, delete: if isAdmin();
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if isAdmin() || (hasRole('bayi') && resource.data.dealerUserId == request.auth.uid);
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /settings/{settingsId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /announcements/{announcementId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /archives/{archiveId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+  }
+}

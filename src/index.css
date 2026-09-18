@@ -1,0 +1,784 @@
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@300..700&family=Quicksand:wght@300..700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Quicksand", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fredoka", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Playful default values, overridden by data-theme */
+  --color-slate-50: var(--theme-bg-base, #fffefa); 
+  --color-slate-100: var(--theme-bg-card, #fef9ec); 
+  --color-slate-200: var(--theme-border-soft, #fdeec7); 
+  --color-slate-300: var(--theme-border-medium, #fcdfa2); 
+  --color-slate-400: var(--theme-accent-main, #fbbf24); 
+  --color-slate-500: var(--theme-text-dark, #78350f); 
+  --color-slate-600: var(--theme-text-deep, #451a03); 
+  --color-slate-700: var(--theme-text-darker, #2d1302); 
+  --color-slate-800: var(--theme-text-black, #1d0900); 
+  --color-slate-900: var(--theme-text-pure, #120500); 
+
+  /* Playful Sky Blue */
+  --color-blue-50: var(--theme-primary-50, #f0f9ff);
+  --color-blue-100: var(--theme-primary-100, #e0f2fe);
+  --color-blue-200: var(--theme-primary-200, #bae6fd);
+  --color-blue-500: var(--theme-primary-500, #0ea5e9);
+  --color-blue-600: var(--theme-primary-600, #38bdf8); 
+  --color-blue-700: var(--theme-primary-700, #0284c7);
+
+  /* Playful Candy Rose */
+  --color-rose-50: var(--theme-rose-50, #fff1f2);
+  --color-rose-100: var(--theme-rose-100, #ffe4e6);
+  --color-rose-200: var(--theme-rose-200, #fecdd3);
+  --color-rose-500: var(--theme-rose-500, #f43f5e);
+  --color-rose-600: var(--theme-rose-600, #ff5a79); 
+  --color-rose-700: var(--theme-rose-700, #be123c);
+
+  /* Warm Honey Yellow */
+  --color-amber-50: var(--theme-primary-50, #fffdf5);
+  --color-amber-100: var(--theme-primary-100, #fef7da);
+  --color-amber-200: var(--theme-primary-200, #fef08a);
+  --color-amber-500: var(--theme-primary-500, #facc15); 
+  --color-amber-600: var(--theme-primary-600, #ca8a04);
+  --color-amber-700: var(--theme-primary-700, #a16207);
+
+  /* Playful Mint Green */
+  --color-emerald-50: var(--theme-emerald-50, #f0fdf4);
+  --color-emerald-100: var(--theme-emerald-100, #dcfce7);
+  --color-emerald-200: var(--theme-emerald-200, #bbf7d0);
+  --color-emerald-500: var(--theme-emerald-500, #4ade80); 
+  --color-emerald-600: var(--theme-emerald-600, #22c55e);
+  --color-emerald-700: var(--theme-emerald-700, #15803d);
+
+  /* Grape Candy Purple */
+  --color-purple-50: var(--theme-purple-50, #faf5ff);
+  --color-purple-100: var(--theme-purple-100, #f3e8ff);
+  --color-purple-200: var(--theme-purple-200, #e9d5ff);
+  --color-purple-500: var(--theme-purple-500, #c084fc); 
+  --color-purple-600: var(--theme-purple-600, #a855f7);
+  --color-purple-700: var(--theme-purple-700, #7e22ce);
+
+  /* Soft puffy design corners */
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+  --radius-2xl: 2rem;
+  --radius-3xl: 2.75rem;
+}
+
+/* Base Theme Styles using CSS custom properties mapped to classes */
+
+/* 1. Honey Yellow Theme (Sarı Bal Lolipop) */
+[data-theme="honey_yellow"] {
+  --theme-bg-base: #fffdf5;
+  --theme-bg-card: #fef8e3;
+  --theme-border-soft: #fdeeb2;
+  --theme-border-medium: #fbdf80;
+  --theme-accent-main: #f59e0b;
+  --theme-text-dark: #854d0e;
+  --theme-text-deep: #78350f;
+  --theme-text-darker: #451a03;
+  --theme-text-black: #1d0900;
+  --theme-text-pure: #120500;
+
+  --theme-primary-50: #fef8e3;
+  --theme-primary-100: #fdeeb2;
+  --theme-primary-200: #fbdf80;
+  --theme-primary-500: #fbbf24;
+  --theme-primary-600: #f59e0b;
+  --theme-primary-700: #d97706;
+
+  --theme-purple-50: #fffbeb;
+  --theme-purple-100: #fef3c7;
+  --theme-purple-200: #fde68a;
+  --theme-purple-500: #f59e0b;
+  --theme-purple-600: #d97706;
+  --theme-purple-700: #b45309;
+}
+
+/* 2. Bubblegum Pink Theme (Şeker Pembesi & Karamel) */
+[data-theme="bubblegum_pink"] {
+  --theme-bg-base: #fff9fb;
+  --theme-bg-card: #ffeef2;
+  --theme-border-soft: #ffd1dc;
+  --theme-border-medium: #fca5bc;
+  --theme-accent-main: #ff5a79;
+  --theme-text-dark: #9f1239;
+  --theme-text-deep: #881337;
+  --theme-text-darker: #4c0519;
+  --theme-text-black: #2d000b;
+  --theme-text-pure: #1a0005;
+
+  --theme-primary-50: #ffeef2;
+  --theme-primary-100: #ffd1dc;
+  --theme-primary-200: #fca5bc;
+  --theme-primary-500: #ff5a79;
+  --theme-primary-600: #f43f5e;
+  --theme-primary-700: #be123c;
+
+  --theme-purple-50: #fff1f2;
+  --theme-purple-100: #ffe4e6;
+  --theme-purple-200: #fecdd3;
+  --theme-purple-500: #f43f5e;
+  --theme-purple-600: #e11d48;
+  --theme-purple-700: #be123c;
+}
+
+/* 3. Cloud Blue Theme (Bulut Mavisi Oyuncak) */
+[data-theme="cloud_blue"] {
+  --theme-bg-base: #f7fbff;
+  --theme-bg-card: #eaf5ff;
+  --theme-border-soft: #cbe5ff;
+  --theme-border-medium: #93c9ff;
+  --theme-accent-main: #38bdf8;
+  --theme-text-dark: #1e3a8a;
+  --theme-text-deep: #172554;
+  --theme-text-darker: #0f172a;
+  --theme-text-black: #090d16;
+  --theme-text-pure: #03050a;
+
+  --theme-primary-50: #eaf5ff;
+  --theme-primary-100: #cbe5ff;
+  --theme-primary-200: #93c9ff;
+  --theme-primary-500: #38bdf8;
+  --theme-primary-600: #0284c7;
+  --theme-primary-700: #0369a1;
+
+  --theme-purple-50: #f0f9ff;
+  --theme-purple-100: #e0f2fe;
+  --theme-purple-200: #bae6fd;
+  --theme-purple-500: #0ea5e9;
+  --theme-purple-600: #0284c7;
+  --theme-purple-700: #0369a1;
+}
+
+/* 4. Mint Green Theme (Elma Şekeri Yeşil) */
+[data-theme="mint_green"] {
+  --theme-bg-base: #f6fdf9;
+  --theme-bg-card: #e6f9ed;
+  --theme-border-soft: #c1f2d2;
+  --theme-border-medium: #87e5a4;
+  --theme-accent-main: #22c55e;
+  --theme-text-dark: #14532d;
+  --theme-text-deep: #166534;
+  --theme-text-darker: #0f172a;
+  --theme-text-black: #090d16;
+  --theme-text-pure: #03050a;
+
+  --theme-primary-50: #e6f9ed;
+  --theme-primary-100: #c1f2d2;
+  --theme-primary-200: #87e5a4;
+  --theme-primary-500: #22c55e;
+  --theme-primary-600: #16a34a;
+  --theme-primary-700: #15803d;
+
+  --theme-purple-50: #f0fdf4;
+  --theme-purple-100: #dcfce7;
+  --theme-purple-200: #bbf7d0;
+  --theme-purple-500: #22c55e;
+  --theme-purple-600: #16a34a;
+  --theme-purple-700: #15803d;
+}
+
+/* 5. Grape Purple Theme (Lolipop Moru) */
+[data-theme="grape_purple"] {
+  --theme-bg-base: #faf8ff;
+  --theme-bg-card: #f2ebff;
+  --theme-border-soft: #e2d1ff;
+  --theme-border-medium: #cca6ff;
+  --theme-accent-main: #a855f7;
+  --theme-text-dark: #581c87;
+  --theme-text-deep: #4c1d95;
+  --theme-text-darker: #1e1b4b;
+  --theme-text-black: #0f0b29;
+  --theme-text-pure: #050212;
+
+  --theme-primary-50: #f2ebff;
+  --theme-primary-100: #e2d1ff;
+  --theme-primary-200: #cca6ff;
+  --theme-primary-500: #a855f7;
+  --theme-primary-600: #9333ea;
+  --theme-primary-700: #7e22ce;
+
+  --theme-purple-50: #faf5ff;
+  --theme-purple-100: #f3e8ff;
+  --theme-purple-200: #e9d5ff;
+  --theme-purple-500: #a855f7;
+  --theme-purple-600: #9333ea;
+  --theme-purple-700: #7e22ce;
+}
+
+/* 6. Sunset Orange Theme (Sıcak Portakal) */
+[data-theme="sunset_orange"] {
+  --theme-bg-base: #fffbf7;
+  --theme-bg-card: #ffeedb;
+  --theme-border-soft: #ffdab3;
+  --theme-border-medium: #ffb875;
+  --theme-accent-main: #f97316;
+  --theme-text-dark: #9a3412;
+  --theme-text-deep: #7c2d12;
+  --theme-text-darker: #431407;
+  --theme-text-black: #270b00;
+  --theme-text-pure: #140500;
+
+  --theme-primary-50: #ffeedb;
+  --theme-primary-100: #ffdab3;
+  --theme-primary-200: #ffb875;
+  --theme-primary-500: #f97316;
+  --theme-primary-600: #ea580c;
+  --theme-primary-700: #c2410c;
+
+  --theme-purple-50: #fff7ed;
+  --theme-purple-100: #ffedd5;
+  --theme-purple-200: #fed7aa;
+  --theme-purple-500: #f97316;
+  --theme-purple-600: #ea580c;
+  --theme-purple-700: #c2410c;
+}
+
+/* 7. Ocean Teal Theme (Okyanus Turkuaz) */
+[data-theme="ocean_teal"] {
+  --theme-bg-base: #f4fcfc;
+  --theme-bg-card: #daf6f6;
+  --theme-border-soft: #b0eded;
+  --theme-border-medium: #6be0e0;
+  --theme-accent-main: #0d9488;
+  --theme-text-dark: #115e59;
+  --theme-text-deep: #134e4a;
+  --theme-text-darker: #042f2e;
+  --theme-text-black: #021a19;
+  --theme-text-pure: #010f0f;
+
+  --theme-primary-50: #daf6f6;
+  --theme-primary-100: #b0eded;
+  --theme-primary-200: #6be0e0;
+  --theme-primary-500: #0d9488;
+  --theme-primary-600: #0f766e;
+  --theme-primary-700: #115e59;
+
+  --theme-purple-50: #f0fdfa;
+  --theme-purple-100: #ccfbf1;
+  --theme-purple-200: #99f6e4;
+  --theme-purple-500: #0d9488;
+  --theme-purple-600: #0f766e;
+  --theme-purple-700: #115e59;
+}
+
+/* 8. Forest Green Theme (Derin Orman Yeşili) */
+[data-theme="forest_green"] {
+  --theme-bg-base: #fbfdf7;
+  --theme-bg-card: #eff7e4;
+  --theme-border-soft: #daf0bf;
+  --theme-border-medium: #b4df80;
+  --theme-accent-main: #65a30d;
+  --theme-text-dark: #3f6212;
+  --theme-text-deep: #365314;
+  --theme-text-darker: #1a2e05;
+  --theme-text-black: #0f1c02;
+  --theme-text-pure: #070e01;
+
+  --theme-primary-50: #eff7e4;
+  --theme-primary-100: #daf0bf;
+  --theme-primary-200: #b4df80;
+  --theme-primary-500: #65a30d;
+  --theme-primary-600: #4d7c0f;
+  --theme-primary-700: #3f6212;
+
+  --theme-purple-50: #f7fee7;
+  --theme-purple-100: #ecfccb;
+  --theme-purple-200: #d9f99d;
+  --theme-purple-500: #65a30d;
+  --theme-purple-600: #4d7c0f;
+  --theme-purple-700: #3f6212;
+}
+
+/* Dynamic custom fonts and scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--theme-bg-card, #fef9ec);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--theme-border-soft, #fdeec7);
+  border: 2px solid var(--theme-bg-card, #fef9ec);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--theme-border-medium, #fcdfa2);
+}
+
+.brand-marquee {
+  overflow: hidden;
+  padding: 2rem 0;
+}
+
+.brand-marquee__heading {
+  padding: 0 1.5rem 1.25rem;
+  text-align: center;
+}
+
+.brand-marquee__eyebrow {
+  color: var(--theme-accent-main, #fbbf24);
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+}
+
+.brand-marquee__title {
+  color: var(--theme-text-pure, #120500);
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+
+.brand-marquee__viewport {
+  mask-image: linear-gradient(to right, transparent, black 6%, black 94%, transparent);
+  overflow: hidden;
+}
+
+.brand-marquee__track {
+  display: flex;
+  gap: 1rem;
+  width: max-content;
+  animation: brand-marquee-slide 26s linear infinite;
+}
+
+.brand-marquee__card {
+  display: grid;
+  flex: 0 0 9rem;
+  height: 7rem;
+  place-items: center;
+  background: var(--theme-bg-card, #fef9ec);
+  border: 1px solid var(--theme-border-soft, #fdeec7);
+  border-radius: 1rem;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.05);
+}
+
+.brand-marquee__image {
+  width: 4.5rem;
+  height: 5.5rem;
+  object-fit: contain;
+}
+
+@keyframes brand-marquee-slide {
+  to {
+    transform: translateX(calc(-50% - 0.5rem));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-marquee__track {
+    animation-play-state: paused;
+  }
+}
+
+.store-footer {
+  position: relative;
+  overflow: hidden;
+  margin-top: 2rem;
+  color: var(--theme-text-pure, #120500);
+  background: linear-gradient(145deg, var(--theme-bg-card, #fef9ec), var(--theme-bg-base, #fffefa));
+  border: 1px solid var(--theme-border-soft, #fdeec7);
+  border-radius: 2rem;
+  box-shadow: 0 1.5rem 3rem rgb(120 53 15 / 0.08);
+}
+
+.store-footer::before {
+  position: absolute;
+  top: -5rem;
+  right: -3rem;
+  width: 14rem;
+  height: 14rem;
+  content: "";
+  background: var(--theme-primary-100, #fdeeb2);
+  border-radius: 50%;
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.store-footer__content {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(15rem, 0.8fr) 1.7fr;
+  gap: 1.25rem;
+  padding: 1.25rem;
+}
+
+.store-footer__intro {
+  align-self: stretch;
+  padding: 1.5rem;
+  background: linear-gradient(160deg, var(--theme-primary-50, #fef8e3), var(--theme-bg-base, #fffefa));
+  border: 1px solid var(--theme-border-soft, #fdeec7);
+  border-radius: 1.5rem;
+  box-shadow: inset 0 1px rgb(255 255 255 / 0.7);
+}
+
+.store-footer__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--theme-accent-main, #fbbf24);
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+}
+
+.store-footer__eyebrow::before {
+  width: 1.5rem;
+  height: 0.1875rem;
+  content: "";
+  background: var(--theme-accent-main, #fbbf24);
+  border-radius: 9999px;
+}
+
+.store-footer__title {
+  max-width: 15rem;
+  margin-top: 0.5rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.5rem, 2.5vw, 2rem);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+}
+
+.store-footer__description {
+  max-width: 20rem;
+  margin-top: 0.625rem;
+  color: var(--theme-text-dark, #78350f);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+.store-footer__columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.store-footer__columns > div {
+  min-width: 0;
+  padding: 1rem;
+  background: rgb(255 255 255 / 0.52);
+  border: 1px solid var(--theme-border-soft, #fdeec7);
+  border-radius: 1rem;
+}
+
+.store-footer__heading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.875rem;
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.store-footer__heading::after {
+  flex: 1;
+  height: 1px;
+  content: "";
+  background: var(--theme-border-soft, #fdeec7);
+}
+
+.store-footer__links,
+.store-footer__contact {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.store-footer__links a,
+.store-footer__contact a {
+  color: var(--theme-text-dark, #78350f);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  transition: color 150ms ease;
+}
+
+.store-footer__links a:hover,
+.store-footer__contact a:hover,
+.store-footer__shortcut-button:hover {
+  color: var(--theme-accent-main, #fbbf24);
+}
+
+.store-footer__shortcut-button {
+  padding: 0;
+  color: var(--theme-text-dark, #78350f);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 0.6875rem;
+  cursor: pointer;
+}
+
+.store-footer__shortcut-details {
+  width: min(18rem, 100%);
+  padding: 0.625rem;
+  color: var(--theme-text-dark, #78350f);
+  background: var(--theme-bg-base, #fffefa);
+  border: 1px solid var(--theme-border-soft, #fdeec7);
+  border-radius: 0.625rem;
+  font-size: 0.625rem;
+  line-height: 1.5;
+}
+
+.store-footer__shortcut-details p + p {
+  margin-top: 0.25rem;
+}
+
+.store-footer__shortcut-details strong {
+  color: var(--theme-text-pure, #120500);
+}
+
+.store-footer__news-details {
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+.store-footer__news-item {
+  display: flex;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  margin-top: 0.5rem;
+  border-top: 1px solid var(--theme-border-soft, #fdeec7);
+}
+
+.store-footer__news-item > span {
+  flex-shrink: 0;
+  font-size: 1rem;
+}
+
+.store-footer__news-item strong,
+.store-footer__news-item small,
+.store-footer__news-item p {
+  display: block;
+}
+
+.store-footer__news-item small {
+  margin-top: 0.125rem;
+  color: var(--theme-text-dark, #78350f);
+  font-size: 0.5625rem;
+}
+
+.store-footer__news-item p {
+  margin-top: 0.25rem;
+}
+
+.store-footer__contact a {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.store-footer__map-card {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  background: var(--theme-bg-base, #fffefa);
+  border: 1px solid var(--theme-border-soft, #fdeec7);
+  border-radius: 1.25rem;
+  box-shadow: 0 0.75rem 1.5rem rgb(120 53 15 / 0.06);
+}
+
+.store-footer__map-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem;
+}
+
+.store-footer__location-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.store-footer__location-icon {
+  display: grid;
+  flex-shrink: 0;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  color: var(--theme-text-pure, #120500);
+  background: var(--theme-primary-100, #fdeeb2);
+  border: 1px solid var(--theme-border-medium, #fbdf80);
+  border-radius: 0.75rem;
+}
+
+.store-footer__map-title {
+  margin-top: 0.125rem;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.store-footer__map-heading .store-footer__eyebrow {
+  font-size: 0.5625rem;
+}
+
+.store-footer__location-details {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.625rem;
+  padding: 0 1.25rem 1.25rem;
+}
+
+.store-footer__location-details > div,
+.store-footer__location-details > a {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.75rem;
+  color: var(--theme-text-dark, #78350f);
+  background: var(--theme-bg-card, #fef9ec);
+  border: 1px solid var(--theme-border-soft, #fdeec7);
+  border-radius: 0.75rem;
+  font-size: 0.625rem;
+  line-height: 1.4;
+}
+
+.store-footer__location-details svg {
+  flex-shrink: 0;
+  margin-top: 0.125rem;
+  color: var(--theme-accent-main, #fbbf24);
+}
+
+.store-footer__location-details span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.store-footer__location-details strong {
+  display: block;
+  margin-bottom: 0.125rem;
+  color: var(--theme-text-pure, #120500);
+  font-size: 0.625rem;
+}
+
+.store-footer__address {
+  max-width: 40rem;
+  color: var(--theme-text-dark, #78350f);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+
+.store-footer__map-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.store-footer__map-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-shrink: 0;
+  padding: 0.5rem 0.75rem;
+  color: var(--theme-text-pure, #120500);
+  background: var(--theme-primary-500, #fbbf24);
+  border-radius: 0.75rem;
+  font-size: 0.6875rem;
+  font-weight: 800;
+}
+
+.store-footer__map-link--secondary {
+  color: var(--theme-text-dark, #78350f);
+  background: var(--theme-bg-card, #fef9ec);
+  border: 1px solid var(--theme-border-medium, #fbdf80);
+}
+
+.store-footer__coordinates {
+  margin-top: 0.25rem;
+  color: var(--theme-text-dark, #78350f);
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+}
+
+.store-footer__map-frame {
+  position: relative;
+  height: 15rem;
+  background: var(--theme-bg-card, #fef9ec);
+}
+
+.store-footer__map-frame iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.store-footer__map-badge {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.625rem;
+  color: var(--theme-text-pure, #120500);
+  background: rgb(255 255 255 / 0.9);
+  border: 1px solid var(--theme-border-soft, #fdeec7);
+  border-radius: 0.625rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+}
+
+.store-footer__bottom {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  color: var(--theme-text-dark, #78350f);
+  background: rgb(255 255 255 / 0.55);
+  border-top: 1px solid var(--theme-border-soft, #fdeec7);
+  font-size: 0.625rem;
+  font-weight: 700;
+}
+
+@media (max-width: 767px) {
+  .store-footer__content {
+    grid-template-columns: 1fr;
+    padding: 0.75rem;
+  }
+
+  .store-footer__intro {
+    padding: 1.25rem;
+  }
+
+  .store-footer__columns {
+    grid-template-columns: 1fr;
+    gap: 0.625rem;
+  }
+
+  .store-footer__columns > div {
+    padding: 0.75rem;
+  }
+
+  .store-footer__map-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .store-footer__map-actions {
+    justify-content: flex-start;
+  }
+
+  .store-footer__location-details {
+    grid-template-columns: 1fr;
+  }
+
+  .store-footer__bottom {
+    flex-direction: column;
+    padding: 0.875rem 1.25rem;
+  }
+}

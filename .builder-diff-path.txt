@@ -1,0 +1,24 @@
+Changed files (20), 9410 lines changed (+4629 -4781):
+  +10 -8	.env.example
+  +0 -943	db.json
+  +1 -0	index.html
+  +3002 -1774	package-lock.json
+  +5 -8	package.json
+  +105 -19	server.ts
+  +412 -573	src/App.tsx
+  +487 -122	src/components/AdminDashboard.tsx
+  +14 -16	src/components/AdminLogin.tsx
+  +48 -14	src/components/AntiDdosShield.tsx
+  +366 -110	src/components/CustomerStore.tsx
+  +44 -19	src/components/DealerDashboard.tsx
+  +5 -4	src/components/DealerSelector.tsx
+  +51 -101	src/components/Header.tsx
+  +20 -2	src/components/OrderDetailsModal.tsx
+  +4 -100	src/main.tsx
+  +1 -966	src/mockData.ts
+  +41 -1	src/types.ts
+  +3 -1	tsconfig.json
+  +10 -0	vite.config.ts
+
+Full diff (shuffled file order, [L:N] line markers) written to — read this file for the complete, untruncated diff:
+.builder/tmp/local-diff-baa47cd0.diff
