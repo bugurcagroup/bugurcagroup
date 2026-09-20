@@ -241,6 +241,17 @@ export interface StoreSettings {
   footerLocationTitle?: string;
   footerDirectionsLabel?: string;
   footerMapLabel?: string;
+
+  // Yasal Künye (üye işyeri / banka denetiminde zorunlu) — Firestore settings/general üzerinden beslenir,
+  // GitHub'da placeholder olarak durur; gerçek tüzel veri yalnızca Firestore dokümanında tutulur.
+  legalCompanyTitle?: string nederbörd;
+  legalTaxOffice?: string;
+  legalTaxNumber?: string;
+  legalMersisNumber?: string;
+  legalTradeRegistryNumber?: string;
+  legalLandlinePhone?: string;
+  legalEmail?: string;
+  legalEffectiveDate?: string;
   footerShortcuts?: { id: string; label: string; href: string }[];
   footerAboutLinks?: { id: string; label: string; href: string }[];
   footerLocations?: { id: string; label: string; address: string; coordinates?: string }[];

@@ -1376,32 +1376,32 @@ export default function App() {
           <div className="md:flex md:justify-between md:items-start gap-6 space-y-5 md:space-y-0">
             <div className="md:flex-1 space-y-2">
               <p className="font-semibold text-slate-600 font-display">
-                {storeSettings.storeName} E-Ticaret Platformu � 2026
+                <p className="font-semibold text-slate-600 font-display">{storeSettings.storeName} E-Ticaret Platformu © 2026</p>
               </p>
               <p className="max-w-md mx-auto md:mx-0 leading-relaxed text-[10px]">
-                Bu platform k�rtasiye esnaflar�n� desteklemek i�in geli�tirilmi� bir MVP sim�lat�r�d�r. G�rsel tasar�m ve ciro hakedi� mant��� ger�ek zamanl� �al��maktad�r.
+                Bu platform kırtasiye esnaflarını desteklemek için geliştirilmiş bir MVP simülatörüdür. Görsel tasarım ve ciro hakediş mantığı gerçek zamanlı çalışmaktadır.
               </p>
               <div className="pt-1 text-[10px] text-slate-500 space-y-1.5 leading-relaxed">
-                <p className="text-slate-600 font-semibold text-[11px]">Yasal Bilgiler (K�nye)</p>
-                <p><span className="font-medium text-slate-500">�irket �nvan�:</span> {storeSettings.contactAddress ? storeSettings.storeName : 'Tedarik Edilecek'}</p>
-                <p><span className="font-medium text-slate-500">Vergi Dairesi / Vergi No:</span> Tedarik Edilecek</p>
-                <p><span className="font-medium text-slate-500">MERS�S / Ticaret Sicil No:</span> Tedarik Edilecek</p>
-                <p><span className="font-medium text-slate-500">Merkez Adres:</span> {storeSettings.contactAddress || 'Tedarik Edilecek'}</p>
-                <p><span className="font-medium text-slate-500">Sabit Telefon:</span> Tedarik Edilecek</p>
-                <p><span className="font-medium text-slate-500">E-posta:</span> {storeSettings.contactEmail ? <a className="text-sky-600 hover:underline" href={`mailto:${storeSettings.contactEmail}`}>{storeSettings.contactEmail}</a> : 'Tedarik Edilecek'}</p>
+                <p className="text-slate-600 font-semibold text-[11px]">Yasal Bilgiler (Künye)</p>
+                <p><span className="font-medium text-slate-500">Şirket Ünvanı:</span> Efektif Teknoloji İç ve Dış Ticaret Limited Şirketi</p>
+                <p><span className="font-medium text-slate-500">Vergi Dairesi / Vergi No:</span> Topçumeydanı V.D. / 141 067 9040 0001</p>
+                <p><span className="font-medium text-slate-500">MERSİS / Ticaret Sicil No:</span> 0141067990400001 / 23529</p>
+                <p><span className="font-medium text-slate-500">Merkez Adres:</span> Yusufpaşa Mah. 886 Sk. Dünya İş Merkezi No: 15/C Eyyübiye / ŞANLIURFA</p>
+                <p><span className="font-medium text-slate-500">Sabit Telefon:</span> 0507 249 76 46</p>
+                <p><span className="font-medium text-slate-500">E-posta:</span> {storeSettings.contactEmail ? <a className="text-sky-600 hover:underline" href={`mailto:${storeSettings.contactEmail}`}>{storeSettings.contactEmail}</a> : 'bugurcagroup@gmail.com'}</p>
               </div>
             </div>
             <div className="md:w-72 space-y-3 md:pt-2">
-              <p className="text-slate-600 font-semibold text-[11px]">Mevzuat ve S�zle�meler</p>
+                <p className="text-slate-600 font-semibold text-[11px]">Mevzuat ve Sözleşmeler</p>
               <nav className="grid grid-cols-1 gap-1.5 text-[10px]">
-                <a className="text-sky-600 hover:underline text-left" href="#mesafeli-satis">Mesafeli Sat�� S�zle�mesi</a>
-                <a className="text-sky-600 hover:underline text-left" href="#on-bilgilendirme">�n Bilgilendirme Formu</a>
-                <a className="text-sky-600 hover:underline text-left" href="#iptal-iade">�ptal ve �ade Ko�ullar�</a>
+                    <a className="text-sky-600 hover:underline text-left" href="#mesafeli-satis">Mesafeli Satış Sözleşmesi</a>
+                    <a className="text-sky-600 hover:underline text-left" href="#on-bilgilendirme">Ön Bilgilendirme Formu</a>
+                    <a className="text-sky-600 hover:underline text-left" href="#iptal-iade">İptal ve İade Koşulları</a>
                 <a className="text-sky-600 hover:underline text-left" href="#kvkk">KVKK Aydınlatma Metni</a>
-                <a className="text-sky-600 hover:underline text-left" href="#kargo-teslimat">Kargo ve Teslimat Ko�ullar�</a>
+                    <a className="text-sky-600 hover:underline text-left" href="#kargo-teslimat">Kargo ve Teslimat Koşulları</a>
               </nav>
               <div className="pt-1 text-[10px] text-slate-500 space-y-1">
-                <p className="text-slate-600 font-semibold text-[11px]">�leti�im</p>
+                <p className="text-slate-600 font-semibold text-[11px]">İletişim</p>
                 <p>{storeSettings.contactPhone ? <a className="text-sky-600 hover:underline" href={`tel:${storeSettings.contactPhone}`}>{storeSettings.contactPhone}</a> : 'Sabit telefon: Tedarik Edilecek'}</p>
                 <p>{storeSettings.contactEmail ? <a className="text-sky-600 hover:underline" href={`mailto:${storeSettings.contactEmail}`}>{storeSettings.contactEmail}</a> : 'E-posta: Tedarik Edilecek'}</p>
               </div>
