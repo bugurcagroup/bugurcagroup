@@ -393,6 +393,7 @@ export default function CustomerStore({
   const [hasAcceptedMembershipTerms, setHasAcceptedMembershipTerms] = useState(false);
   const [hasAcceptedCheckoutTerms, setHasAcceptedCheckoutTerms] = useState(false);
   const [activeLegalDocument, setActiveLegalDocument] = useState<keyof typeof LEGAL_DOCUMENTS | null>(null);
+  const [hasAcceptedCheckoutKvkk, setHasAcceptedCheckoutKvkk] = useState(false);
   const [isOrderSuccess, setIsOrderSuccess] = useState(false);
   const [recentOrderId, setRecentOrderId] = useState('');
   const [selectedOrderDetail, setSelectedOrderDetail] = useState<Order | null>(null);
@@ -706,7 +707,7 @@ export default function CustomerStore({
       alert('Sepetiniz boş!');
       return;
     }
-    if (!hasAcceptedCheckoutTerms) {
+    if (!hasAcceptedCheckoutTerms || !hasAcceptedCheckoutKvkk) {
       alert('Mesafeli Satış Sözleşmesi ve Ön Bilgilendirme Formu onayı gereklidir.');
       return;
     }
@@ -2560,12 +2561,13 @@ Bizleri tercih ettiğiniz için teşekkür ederiz!
                   <input type="checkbox" checked={hasAcceptedCheckoutTerms} onChange={e => setHasAcceptedCheckoutTerms(e.target.checked)} className="mt-0.5 shrink-0 accent-amber-500" />
                   <span><button type="button" onClick={() => setActiveLegalDocument('distance-sales')} className="font-bold text-amber-700 underline cursor-pointer">Mesafeli Satış Sözleşmesi&apos;ni</button> ve <button type="button" onClick={() => setActiveLegalDocument('pre-information')} className="font-bold text-amber-700 underline cursor-pointer">Ön Bilgilendirme Formu&apos;nu</button> okudum, onaylıyorum.</span>
                 </label>
+<label className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-600 cursor-pointer"><input type="checkbox" checked={hasAcceptedCheckoutKvkk} onChange={e => setHasAcceptedCheckoutKvkk(e.target.checked)} className="mt-0.5 shrink-0 accent-amber-500" /><span><button type="button" onClick={() => setActiveLegalDocument('kvkk')} className="font-bold text-amber-700 underline cursor-pointer">KVKK Aydınlatma Metni&apos;ni</button> okudum, kabul ediyorum.</span></label>
 
                 <div className="pt-3">
                   <button
                     id="submit-payment-btn"
                     type="submit"
-                    disabled={isProcessingPayment || !hasAcceptedCheckoutTerms}
+                    disabled={isProcessingPayment || !hasAcceptedCheckoutTerms && hasAcceptedCheckoutKvkk}
                     className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all text-xs flex items-center justify-center gap-2 cursor-pointer shadow-xs disabled:bg-slate-400 disabled:cursor-not-allowed"
                   >
                     {isProcessingPayment ? (
