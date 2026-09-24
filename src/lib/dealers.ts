@@ -24,12 +24,15 @@ export interface DealerApplication {
 
 type DealerRecord = Omit<Dealer, 'id'>;
 
+const withoutUndefined = <T extends object>(value: T): Partial<T> =>
+  Object.fromEntries(Object.entries(value).filter(([, fieldValue]) => fieldValue !== undefined)) as Partial<T>;
+
 const toDealer = (item: { id: string; data: () => Record<string, unknown> }): Dealer => ({
   id: item.id,
   ...item.data(),
 } as Dealer);
 
-const toPublicDealer = (dealer: Dealer): DealerRecord => ({
+const toPublicDealer = (dealer: Dealer): Partial<DealerRecord> => withoutUndefined({
   name: dealer.name,
   owner: dealer.owner,
   city: dealer.city,
@@ -42,6 +45,8 @@ const toPublicDealer = (dealer: Dealer): DealerRecord => ({
   commissionEarned: 0,
   createdAt: dealer.createdAt,
   sector: dealer.sector,
+  commissionRate: dealer.commissionRate,
+  privateCommissionRate: dealer.privateCommissionRate,
 });
 
 export const getDealersFromFirestore = async (): Promise<Dealer[]> => {
@@ -55,14 +60,21 @@ export const subscribeToDealers = (onChange: (dealers: Dealer[]) => void, onErro
   error => onError(error),
 );
 
+export const subscribeToDealerPrivate = (
+  dealerId: string,
+  onChange: (dealer: Dealer | null) => void,
+  onError: (error: Error) => void,
+) => onSnapshot(
+  doc(firestore, DEALERS_COLLECTION, dealerId),
+  snapshot => onChange(snapshot.exists() ? toDealer(snapshot) : null),
+  error => onError(error),
+);
+
 export const subscribeToPublicDealers = (onChange: (dealers: Dealer[]) => void, onError: (error: Error) => void) => onSnapshot(
   collection(firestore, PUBLIC_DEALERS_COLLECTION),
   snapshot => onChange(snapshot.docs.map(toDealer)),
   error => onError(error),
 );
-
-const withoutUndefined = <T extends object>(value: T): Partial<T> =>
-  Object.fromEntries(Object.entries(value).filter(([, fieldValue]) => fieldValue !== undefined)) as Partial<T>;
 
 const toDealerApplication = (item: { id: string; data: () => Record<string, unknown> }): DealerApplication => {
   const data = item.data();

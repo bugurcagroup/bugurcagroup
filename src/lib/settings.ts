@@ -9,6 +9,7 @@ export const DEFAULT_STORE_SETTINGS: StoreSettings = {
   storeName: 'Buğurca Kırtasiye',
   storeSlogan: 'Yerli Kırtasiye Esnafını Koruyan Hibrit E-Ticaret Modeli',
   commissionRate: 0,
+  defaultPrivateCommissionRate: 5,
   adminPoolBalance: 0,
   logoUrl: 'https://cdn.builder.io/api/v1/image/assets%2F690dc81201dd442691c0fbf0269adbab%2Ff68680587b154e779a76b8693182a79c?format=webp&width=800&height=1200',
   bannerUrl: '',

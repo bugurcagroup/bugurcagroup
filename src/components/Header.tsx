@@ -59,6 +59,109 @@ export default function Header({
   onOpenProfile,
 }: HeaderProps) {
   const [unread, setUnread] = React.useState(false);
+  const [dailyVerse, setDailyVerse] = React.useState({
+    text: 'Size verdiğimiz rızıkların temiz ve helâl olanlarından yiyin! Eğer yalnız Allah’a kulluk ediyorsanız O’na şükredin!',
+    reference: 'Bakara / 172. Ayet',
+  });
+
+  React.useEffect(() => {
+    const controller = new AbortController();
+    const totalAyahCount = 6236;
+    const fallbackVerses = [
+      {
+        text: 'Size verdiğimiz rızıkların temiz ve helâl olanlarından yiyin! Eğer yalnız Allah’a kulluk ediyorsanız O’na şükredin!',
+        reference: 'Bakara / 172. Ayet',
+      },
+      {
+        text: 'Şüphesiz güçlükle beraber bir kolaylık vardır.',
+        reference: 'İnşirah / 5. Ayet',
+      },
+      {
+        text: 'Bilesiniz ki, kalpler ancak Allah’ı anmakla huzur bulur.',
+        reference: 'Ra’d / 28. Ayet',
+      },
+      {
+        text: 'Allah, hiç kimseye gücünün yettiğinden başkasını yüklemez.',
+        reference: 'Bakara / 286. Ayet',
+      },
+      {
+        text: 'De ki: Ey kendilerine kötülük edip aşırı giden kullarım! Allah’ın rahmetinden ümit kesmeyin.',
+        reference: 'Zümer / 53. Ayet',
+      },
+    ];
+
+    const showFallbackVerse = () => {
+      let previousFallbackIndex = -1;
+      try {
+        previousFallbackIndex = Number(window.localStorage.getItem('fallback_verse_index'));
+      } catch {
+        previousFallbackIndex = -1;
+      }
+      const nextFallbackIndex = Number.isInteger(previousFallbackIndex) && previousFallbackIndex >= 0
+        ? (previousFallbackIndex + 1) % fallbackVerses.length
+        : 0;
+      try {
+        window.localStorage.setItem('fallback_verse_index', String(nextFallbackIndex));
+      } catch {
+        // Depolama kullanılamasa da yedek ayet gösterilir.
+      }
+      setDailyVerse(fallbackVerses[nextFallbackIndex]);
+    };
+
+    const loadRandomVerse = async () => {
+      let previousAyahNumber = 0;
+      try {
+        previousAyahNumber = Number(window.localStorage.getItem('random_verse_number')) || 0;
+      } catch {
+        previousAyahNumber = 0;
+      }
+
+      let ayahNumber = Math.floor(Math.random() * totalAyahCount) + 1;
+      if (ayahNumber === previousAyahNumber) {
+        ayahNumber = ayahNumber === totalAyahCount ? 1 : ayahNumber + 1;
+      }
+
+      try {
+        const response = await fetch(`https://api.alquran.cloud/v1/ayah/${ayahNumber}/tr.diyanet?refresh=${Date.now()}`, {
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          showFallbackVerse();
+          return;
+        }
+
+        const payload = await response.json() as {
+          data?: {
+            text?: string;
+            numberInSurah?: number;
+            surah?: { name?: string };
+          };
+        };
+        const verse = payload.data;
+        if (!verse?.text || !verse.surah?.name || !verse.numberInSurah) {
+          showFallbackVerse();
+          return;
+        }
+
+        const reference = `${verse.surah.name} / ${verse.numberInSurah}. Ayet`;
+        try {
+          window.localStorage.setItem('random_verse_number', String(ayahNumber));
+        } catch {
+          // Depolama kullanılamasa da internetten gelen ayet gösterilir.
+        }
+        setDailyVerse({ text: verse.text, reference });
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          showFallbackVerse();
+          console.warn('Günün ayeti internetten alınamadı.');
+        }
+      }
+    };
+
+    void loadRandomVerse();
+    return () => controller.abort();
+  }, []);
 
   React.useEffect(() => {
     if (newsList && newsList.length > 0) {
@@ -90,7 +193,7 @@ export default function Header({
       <div className="bg-slate-900 text-slate-300 border-b border-slate-850">
         <div className="max-w-7xl mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 sm:px-6 lg:px-8">
           <p className="flex-1 text-center text-xs leading-relaxed text-slate-200 sm:text-left sm:text-sm">
-            <span className="font-semibold text-amber-300">Ey iman edenler!</span> Size verdiğimiz rızıkların temiz ve helâl olanlarından yiyin! Eğer yalnız Allah’a kulluk ediyorsanız O’na şükredin! <span className="whitespace-nowrap font-bold text-amber-300">Bakara / 172. Ayet</span>
+            <span className="font-semibold text-amber-300">{dailyVerse.text}</span>{' '}<span className="whitespace-nowrap font-bold text-amber-300">{dailyVerse.reference}</span>
           </p>
           <div className="flex flex-wrap items-center justify-end gap-2">
             {(isMemberLoggedIn || Boolean(loggedInDealer) || currentRole === 'admin') && (
@@ -181,10 +284,13 @@ export default function Header({
                 decoding="async"
                 className="size-11 rounded-xl object-cover shadow-md shadow-amber-500/10"
               />
-              <div>
+              <div className="min-w-0">
                 <h1 className="font-display font-bold text-lg text-slate-900 tracking-tight leading-none">
-                  {storeName || 'Buğurca Kırtasiye'}
+                  Buğurca Kırtasiye
                 </h1>
+                <p className="mt-1 max-w-[15rem] truncate text-[0.5rem] font-bold leading-tight tracking-[0.04em] text-slate-500 sm:max-w-none">
+                  EFEKTİF TEKNOLOJİ İÇ VE DIŞ TİCARET LİMİTED ŞİRKETİ
+                </p>
               </div>
             </button>
           ) : (

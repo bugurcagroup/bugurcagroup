@@ -10,6 +10,12 @@ interface AppErrorBoundaryState {
 
 export default class AppErrorBoundary extends React.Component<AppErrorBoundaryProps, AppErrorBoundaryState> {
   state: AppErrorBoundaryState = { hasError: false };
+  private readonly children: React.ReactNode;
+
+  constructor(props: AppErrorBoundaryProps) {
+    super(props);
+    this.children = props.children;
+  }
 
   static getDerivedStateFromError(): AppErrorBoundaryState {
     return { hasError: true };
@@ -20,7 +26,7 @@ export default class AppErrorBoundary extends React.Component<AppErrorBoundaryPr
   }
 
   render() {
-    if (!this.state.hasError) return this.props.children;
+    if (!this.state.hasError) return this.children;
 
     return (
       <main className="min-h-screen bg-slate-50 px-6 py-16 text-center text-slate-900">

@@ -85,17 +85,26 @@ export const provisionDealerAuth = async (email: string, password: string, displ
 };
 
 export const loginUser = async (email: string, password: string) => {
-  const userCredential = await signInWithEmailAndPassword(firebaseAuth, email.trim().toLowerCase(), password);
+  const normalizedEmail = email.trim().toLowerCase();
+  const userCredential = await signInWithEmailAndPassword(firebaseAuth, normalizedEmail, password);
   const profileSnapshot = await getDoc(doc(firestore, 'users', userCredential.user.uid));
-  if (!profileSnapshot.exists()) {
+  if (profileSnapshot.exists()) return profileSnapshot.data() as UserProfile;
+
+  if (normalizedEmail === 'bugurcagroup@gmail.com') {
     try {
       return await restoreAdminProfile();
     } catch {
       await signOut(firebaseAuth);
-      throw new Error('Kullanıcı profili Firestore üzerinde bulunamadı.');
+      throw new Error('Yönetici profili Firestore üzerinde kurtarılamadı.');
     }
   }
-  return profileSnapshot.data() as UserProfile;
+
+  const customerProfile = profileFromUser(userCredential.user, {
+    role: 'customer',
+    createdAt: new Date().toISOString(),
+  });
+  await setDoc(doc(firestore, 'users', customerProfile.uid), customerProfile, { merge: true });
+  return customerProfile;
 };
 
 export const getAuthErrorMessage = (error: unknown): string => {

@@ -30,3 +30,8 @@ export const migrateDealerRecords = async (): Promise<void> => {
   const callable = httpsCallable<void, { migrated: number }>(functions, 'migrateDealers');
   await callable();
 };
+
+export const recalculateDealerFinancials = async (): Promise<void> => {
+  const callable = httpsCallable<void, { recalculated: number }>(functions, 'recalculateDealerFinancials');
+  await callable();
+};

@@ -1,14 +1,29 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __exportStar = (this && this.__exportStar) || function(m, exports) {
+    for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteDealer = exports.optimizeProductImage = exports.migrateDealers = exports.submitDealerApplication = exports.restoreAdminProfile = void 0;
+exports.deleteDealer = exports.optimizeProductImage = exports.migrateDealers = exports.submitDealerApplication = exports.recalculateDealerFinancials = exports.syncAllDealerFinancialsOnSettingsChange = exports.syncDealerFinancialsOnRateChange = exports.syncDealerCommission = exports.restoreAdminProfile = void 0;
 const app_1 = require("firebase-admin/app");
 const auth_1 = require("firebase-admin/auth");
 const storage_1 = require("firebase-admin/storage");
 const firestore_1 = require("firebase-admin/firestore");
 const https_1 = require("firebase-functions/v2/https");
+const firestore_2 = require("firebase-functions/v2/firestore");
 const storage_2 = require("firebase-functions/v2/storage");
 const sharp_1 = __importDefault(require("sharp"));
 if ((0, app_1.getApps)().length === 0)
@@ -52,6 +67,88 @@ exports.restoreAdminProfile = (0, https_1.onCall)(async (request) => {
     }, { merge: true });
     return { uid: callerUid, email: callerEmail, role: 'admin' };
 });
+const roundCurrency = (value) => Number(value.toFixed(2));
+const getCentralOrderTotal = (order, dealerProductIds) => {
+    const items = Array.isArray(order.items) ? order.items : [];
+    return items.reduce((total, item) => {
+        if (!item || typeof item !== 'object')
+            return total;
+        const orderItem = item;
+        const dealerId = typeof orderItem.dealerId === 'string' ? orderItem.dealerId.trim() : '';
+        const productId = typeof orderItem.productId === 'string' ? orderItem.productId : '';
+        const isDealerProduct = orderItem.source === 'dealer' || Boolean(dealerId) || dealerProductIds.has(productId);
+        if (isDealerProduct)
+            return total;
+        const price = Math.max(0, Number(orderItem.price) || 0);
+        const quantity = Math.max(0, Number(orderItem.quantity) || 0);
+        return total + price * quantity;
+    }, 0);
+};
+const syncDealerFinancials = async (dealerId) => {
+    const [dealerSnapshot, orderSnapshot, productSnapshot, settingsSnapshot] = await Promise.all([
+        db.collection('dealers').doc(dealerId).get(),
+        db.collection('orders').where('dealerId', '==', dealerId).get(),
+        db.collection('products').get(),
+        db.collection('settings').doc('general').get(),
+    ]);
+    const dealer = dealerSnapshot.data() || {};
+    const settings = settingsSnapshot.data() || {};
+    const dealerProductIds = new Set(productSnapshot.docs
+        .filter(product => product.data().dealerId === dealerId)
+        .map(product => product.id));
+    const dealerRate = Math.max(0, Number(dealer.commissionRate ?? settings.commissionRate) || 0);
+    const totals = orderSnapshot.docs.reduce((summary, orderDocument) => {
+        const order = orderDocument.data();
+        if (order.orderRole === 'master' || order.status !== 'completed' || order.adminApproved === false || order.commissionVoided === true) {
+            return summary;
+        }
+        const totalPrice = Math.max(0, Number(order.totalPrice) || 0);
+        const centralTotal = getCentralOrderTotal(order, dealerProductIds);
+        const commission = roundCurrency(centralTotal * dealerRate / 100);
+        return {
+            salesVolume: summary.salesVolume + totalPrice,
+            commissionEarned: summary.commissionEarned + commission,
+        };
+    }, { salesVolume: 0, commissionEarned: 0 });
+    await db.collection('dealers').doc(dealerId).set({
+        salesVolume: roundCurrency(totals.salesVolume),
+        commissionEarned: roundCurrency(totals.commissionEarned),
+        updatedAt: new Date().toISOString(),
+    }, { merge: true });
+};
+exports.syncDealerCommission = (0, firestore_2.onDocumentWritten)('orders/{orderId}', async (event) => {
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+    const dealerIds = new Set([before?.dealerId, after?.dealerId]
+        .filter((dealerId) => typeof dealerId === 'string' && dealerId !== 'master' && dealerId !== 'central'));
+    await Promise.all(Array.from(dealerIds).map(syncDealerFinancials));
+});
+exports.syncDealerFinancialsOnRateChange = (0, firestore_2.onDocumentWritten)('dealers/{dealerId}', async (event) => {
+    const before = event.data?.before.data() || {};
+    const after = event.data?.after.data() || {};
+    const rateFields = ['commissionRate', 'privateCommissionRate', 'adminSectorCommissionRate'];
+    if (!rateFields.some(field => before[field] !== after[field]))
+        return;
+    await syncDealerFinancials(event.params.dealerId);
+});
+exports.syncAllDealerFinancialsOnSettingsChange = (0, firestore_2.onDocumentWritten)('settings/{settingsId}', async (event) => {
+    if (event.params.settingsId !== 'general')
+        return;
+    const dealerIds = (await db.collection('dealers').get()).docs.map(dealer => dealer.id);
+    await Promise.all(dealerIds.map(syncDealerFinancials));
+});
+exports.recalculateDealerFinancials = (0, https_1.onCall)(async (request) => {
+    const callerUid = request.auth?.uid;
+    if (!callerUid || !(await isAdmin(callerUid))) {
+        throw new https_1.HttpsError('permission-denied', 'Bu işlem yalnızca yönetici hesabıyla yapılabilir.');
+    }
+    const requestedDealerId = typeof request.data?.dealerId === 'string' ? request.data.dealerId.trim() : '';
+    const dealerIds = requestedDealerId
+        ? [requestedDealerId]
+        : (await db.collection('dealers').get()).docs.map(dealer => dealer.id);
+    await Promise.all(dealerIds.map(syncDealerFinancials));
+    return { recalculated: dealerIds.length };
+});
 exports.submitDealerApplication = (0, https_1.onCall)(async (request) => {
     const data = request.data || {};
     const name = typeof data.name === 'string' ? data.name.trim() : '';
@@ -65,6 +162,21 @@ exports.submitDealerApplication = (0, https_1.onCall)(async (request) => {
     const password = typeof data.password === 'string' ? data.password : '';
     if (!name || !owner || !city || !district || !address || !phone || !email || password.length < 6) {
         throw new https_1.HttpsError('invalid-argument', 'Başvuru bilgileri ve en az 6 karakterli şifre gereklidir.');
+    }
+    const existingApplicationSnapshot = await db.collection('dealer_applications')
+        .where('email', '==', email)
+        .limit(1)
+        .get();
+    const existingApplication = existingApplicationSnapshot.docs[0];
+    if (existingApplication) {
+        const existingData = existingApplication.data();
+        if (existingData.status === 'pending' || existingData.status === 'approved') {
+            return {
+                applicationId: existingApplication.id,
+                dealerId: typeof existingData.dealerId === 'string' ? existingData.dealerId : '',
+                authUid: typeof existingData.authUid === 'string' ? existingData.authUid : '',
+            };
+        }
     }
     const applicationRef = db.collection('dealer_applications').doc();
     const dealerId = await reserveDealerId();
@@ -112,6 +224,19 @@ exports.submitDealerApplication = (0, https_1.onCall)(async (request) => {
         }
         const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '';
         if (code === 'auth/email-already-exists') {
+            const existingApplicationSnapshot = await db.collection('dealer_applications')
+                .where('email', '==', email)
+                .limit(1)
+                .get();
+            const existingApplication = existingApplicationSnapshot.docs[0];
+            const existingData = existingApplication?.data();
+            if (existingApplication && (existingData?.status === 'pending' || existingData?.status === 'approved')) {
+                return {
+                    applicationId: existingApplication.id,
+                    dealerId: typeof existingData.dealerId === 'string' ? existingData.dealerId : '',
+                    authUid: typeof existingData.authUid === 'string' ? existingData.authUid : '',
+                };
+            }
             throw new https_1.HttpsError('already-exists', 'Bu e-posta adresiyle zaten bir bayi hesabı bulunuyor.');
         }
         throw new https_1.HttpsError('internal', 'Bayi başvurusu kaydedilemedi.');
@@ -120,7 +245,7 @@ exports.submitDealerApplication = (0, https_1.onCall)(async (request) => {
 const migrateDealerRecords = async () => {
     const migrationRef = db.collection('system').doc('migrations');
     const migrationSnapshot = await migrationRef.get();
-    if (migrationSnapshot.data()?.dealersV1 === true)
+    if (migrationSnapshot.data()?.dealersV2 === true)
         return 0;
     const dealers = await db.collection('dealers').get();
     const operations = dealers.docs.flatMap(dealerDocument => {
@@ -135,6 +260,8 @@ const migrateDealerRecords = async () => {
             email: typeof dealer.email === 'string' ? dealer.email.trim().toLowerCase() : '',
             status: dealer.status === 'active' || dealer.status === 'suspended' ? dealer.status : 'pending',
             sector: typeof dealer.sector === 'string' ? dealer.sector : '',
+            ...(typeof dealer.commissionRate === 'number' ? { commissionRate: dealer.commissionRate } : {}),
+            ...(typeof dealer.privateCommissionRate === 'number' ? { privateCommissionRate: dealer.privateCommissionRate } : {}),
             createdAt: dealer.createdAt || new Date().toISOString(),
         };
         return [
@@ -152,7 +279,7 @@ const migrateDealerRecords = async () => {
         });
         await batch.commit();
     }
-    await migrationRef.set({ dealersV1: true, completedAt: new Date().toISOString() }, { merge: true });
+    await migrationRef.set({ dealersV2: true, completedAt: new Date().toISOString() }, { merge: true });
     return dealers.size;
 };
 exports.migrateDealers = (0, https_1.onCall)(async (request) => {
@@ -303,3 +430,4 @@ exports.deleteDealer = (0, https_1.onCall)(async (request) => {
         deletedOrders: orderIdsToDelete.size,
     };
 });
+__exportStar(require("./orderMail"), exports);

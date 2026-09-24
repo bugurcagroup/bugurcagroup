@@ -43,7 +43,7 @@ import {
   RefreshCw,
   Archive
 } from 'lucide-react';
-import { Product, Dealer, Order, StoreSettings, CommissionRequest, Member } from '../types';
+import { Product, Dealer, Order, StoreSettings, CommissionRequest, DealerTransaction, Member } from '../types';
 import type { DealerApplication } from '../lib/dealers';
 import { calculateOrderFinancials } from '../lib/finance';
 import { createAppBackup, restoreAppBackup } from '../lib/backup';
@@ -51,6 +51,7 @@ import { CITIES } from '../mockData';
 import OrderDetailsModal from './OrderDetailsModal';
 import ArchivePanel from './ArchivePanel';
 import type { ArchiveRecord } from '../lib/archive';
+import { getOrderShippingStatus, getOrderShippingStatusChanges } from '../lib/orderShipping';
 
 GlobalWorkerOptions.workerSrc = pdfWorker;
 
@@ -97,9 +98,12 @@ interface AdminDashboardProps {
   onBackupRestored?: () => void | Promise<void>;
 
   commissionRequests: CommissionRequest[];
+  dealerTransactions: DealerTransaction[];
   onApproveCommissionRequest: (requestId: string) => void;
   onRejectCommissionRequest: (requestId: string) => void;
   onPayCommissionDirectly: (dealerId: string, amount: number) => void | Promise<void>;
+  dealerProductPayouts: DealerTransaction[];
+  onPayDealerProductSales: (dealerId: string, amount: number) => void | Promise<void>;
 
   securityGateEnabled?: boolean;
   setSecurityGateEnabled?: (enabled: boolean) => void;
@@ -145,9 +149,12 @@ export default function AdminDashboard({
   onDeleteTestOrders,
   onBackupRestored,
   commissionRequests,
+  dealerTransactions,
   onApproveCommissionRequest,
   onRejectCommissionRequest,
   onPayCommissionDirectly,
+  dealerProductPayouts,
+  onPayDealerProductSales,
   securityGateEnabled = false,
   setSecurityGateEnabled,
   onBulkUpdatePrices,
@@ -232,6 +239,9 @@ export default function AdminDashboard({
   const [isDirectPayModalOpen, setIsDirectPayModalOpen] = useState(false);
   const [directPayDealer, setDirectPayDealer] = useState<Dealer | null>(null);
   const [directPayAmount, setDirectPayAmount] = useState<number>(0);
+  const [isDealerProductPayoutModalOpen, setIsDealerProductPayoutModalOpen] = useState(false);
+  const [dealerProductPayoutDealer, setDealerProductPayoutDealer] = useState<Dealer | null>(null);
+  const [dealerProductPayoutAmount, setDealerProductPayoutAmount] = useState(0);
 
   // --- SİPARİŞ DÜZENLEME STATE'LERİ ---
   const [isOrderFormOpen, setIsOrderFormOpen] = useState(false);
@@ -249,6 +259,7 @@ export default function AdminDashboard({
   const [ordShippingDistrict, setOrdShippingDistrict] = useState('');
   const [ordShippingStatus, setOrdShippingStatus] = useState<'preparing' | 'shipped' | 'delivered' | 'cancelled'>('preparing');
   const [selectedOrderDetail, setSelectedOrderDetail] = useState<Order | null>(null);
+  const [adminOrderSourceFilter, setAdminOrderSourceFilter] = useState<'all' | 'dealer' | 'central'>('all');
 
   // --- TEMA & AYARLAR STATE'LERİ ---
   const [isAdminNewOrderFormOpen, setIsAdminNewOrderFormOpen] = useState(false);
@@ -263,6 +274,7 @@ export default function AdminDashboard({
   const [settingsLogo, setSettingsLogo] = useState(storeSettings.logoUrl || '');
   const [settingsSlogan, setSettingsSlogan] = useState(storeSettings.storeSlogan);
   const [settingsCommission, setSettingsCommission] = useState(storeSettings.commissionRate);
+  const [settingsPrivateCommission, setSettingsPrivateCommission] = useState(storeSettings.defaultPrivateCommissionRate ?? 5);
   const [centralBankName, setCentralBankName] = useState(storeSettings.centralBankName || '');
   const [centralAccountHolder, setCentralAccountHolder] = useState(storeSettings.centralAccountHolder || '');
   const [centralIban, setCentralIban] = useState(storeSettings.centralIban || '');
@@ -456,6 +468,7 @@ export default function AdminDashboard({
     setSettingsLogo(storeSettings.logoUrl || '');
     setSettingsSlogan(storeSettings.storeSlogan);
     setSettingsCommission(storeSettings.commissionRate);
+    setSettingsPrivateCommission(storeSettings.defaultPrivateCommissionRate ?? 5);
     setFeaturedTitle(storeSettings.featuredTitle || 'Öne Çıkan Koleksiyon Ürünleri');
     setFeaturedProductIds(storeSettings.featuredProductIds || []);
     setAboutTitle(storeSettings.aboutTitle || 'Biz Kimiz & Tarihçemiz');
@@ -510,6 +523,12 @@ export default function AdminDashboard({
   }, [storeSettings]);
 
   // --- HESAPLAMALAR ---
+  const getCommissionableOrderTotal = (order: Order) => order.items.reduce((total, item) => {
+    const product = products.find(candidate => candidate.id === item.productId);
+    const isDealerProduct = item.source === 'dealer' || Boolean(item.dealerId) || Boolean(product?.dealerId);
+    return isDealerProduct ? total : total + item.price * item.quantity;
+  }, 0);
+
   const dealerFinancials = useMemo<Map<string, { salesVolume: number; commissionEarned: number }>>(() => {
     const stats = new Map<string, { salesVolume: number; commissionEarned: number }>();
     dealers.forEach(dealer => stats.set(dealer.id, {
@@ -524,18 +543,20 @@ export default function AdminDashboard({
         if (!dealer) return;
         const current = stats.get(dealer.id) || { salesVolume: 0, commissionEarned: 0 };
         const totalPrice = Number(order.totalPrice ?? 0);
-        const dealerRate = dealer.commissionRate ?? storeSettings.commissionRate;
-        const storedCommission = Number(order.commissionAmount ?? 0);
-        const commission = storedCommission > 0
-          ? storedCommission
-          : Number((totalPrice * dealerRate / 100).toFixed(2));
+        const commissionableTotal = getCommissionableOrderTotal(order);
+        const commission = calculateOrderFinancials(
+          commissionableTotal,
+          dealer,
+          storeSettings,
+          Boolean(order.isFromDealerPage),
+        ).dealerCommissionAmount;
         current.salesVolume += totalPrice;
         current.commissionEarned += commission;
         stats.set(dealer.id, current);
       });
 
     return stats;
-  }, [dealers, orders, storeSettings.commissionRate]);
+  }, [dealers, orders, products, storeSettings.commissionRate]);
 
   const totalSalesVolume = useMemo(() => {
     return orders
@@ -553,11 +574,28 @@ export default function AdminDashboard({
     return Array.from(dealerFinancials.values()).reduce<number>((acc, stats) => acc + Number((stats as { commissionEarned: number }).commissionEarned), 0);
   }, [dealerFinancials]);
 
-  const totalPaidCommissions = useMemo(() => {
-    return commissionRequests
-      .filter(r => r.status === 'approved')
-      .reduce((acc, r) => acc + Number(r.amount ?? 0), 0);
+  const paidCommissionByDealer = useMemo<Map<string, number>>(() => {
+    const totals = new Map<string, number>();
+    commissionRequests
+      .filter(request => request.status === 'approved')
+      .forEach(request => totals.set(request.dealerId, (totals.get(request.dealerId) || 0) + Number(request.amount ?? 0)));
+    dealerTransactions
+      .filter(transaction => transaction.type === 'payout')
+      .forEach(transaction => totals.set(transaction.dealerId, (totals.get(transaction.dealerId) || 0) + Number(transaction.amount ?? 0)));
+    return totals;
+  }, [commissionRequests, dealerTransactions]);
+
+  const pendingCommissionByDealer = useMemo(() => {
+    const totals = new Map<string, number>();
+    commissionRequests
+      .filter(request => request.status === 'pending')
+      .forEach(request => totals.set(request.dealerId, (totals.get(request.dealerId) || 0) + Number(request.amount ?? 0)));
+    return totals;
   }, [commissionRequests]);
+
+  const totalPaidCommissions = useMemo(() => {
+    return Array.from(paidCommissionByDealer.values() as Iterable<number>).reduce<number>((total, amount) => total + amount, 0);
+  }, [paidCommissionByDealer]);
 
   const pendingDealersCount = useMemo(() => {
     return dealers.filter(d => d.status === 'pending').length;
@@ -570,8 +608,126 @@ export default function AdminDashboard({
   }, [dealers, dealerFinancials]);
 
   const directPayAvailableAmount = directPayDealer
-    ? Number(dealerFinancials.get(directPayDealer.id)?.commissionEarned ?? 0)
+    ? Math.max(
+      0,
+      Number(dealerFinancials.get(directPayDealer.id)?.commissionEarned ?? 0)
+        - (paidCommissionByDealer.get(directPayDealer.id) || 0)
+        - (pendingCommissionByDealer.get(directPayDealer.id) || 0),
+    )
     : 0;
+
+  const dealerProductPaymentSummaries = useMemo(() => {
+    type ProductSummary = {
+      productId: string;
+      name: string;
+      quantity: number;
+      unitPrice: number;
+      totalAmount: number;
+      orderIds: string[];
+    };
+    type DealerSummary = {
+      dealerId: string;
+      dealer: Dealer;
+      products: ProductSummary[];
+      salesTotal: number;
+      paidTotal: number;
+      outstandingTotal: number;
+    };
+
+    const masterOrderIdsWithSubOrders = new Set(
+      orders
+        .filter(order => order.orderRole === 'sub' && order.masterOrderId)
+        .map(order => order.masterOrderId as string),
+    );
+    const paidByDealer = new Map<string, number>();
+    dealerProductPayouts.forEach(transaction => {
+      paidByDealer.set(transaction.dealerId, (paidByDealer.get(transaction.dealerId) || 0) + Number(transaction.amount || 0));
+    });
+    const summaryMap = new Map<string, DealerSummary>();
+
+    orders
+      .filter(order => order.status === 'completed'
+        && order.adminApproved !== false
+        && !(order.orderRole === 'master' && ((order.subOrderIds?.length ?? 0) > 0 || masterOrderIdsWithSubOrders.has(order.id))))
+      .forEach(order => {
+        order.items.forEach(item => {
+          const product = products.find(candidate => candidate.id === item.productId);
+          const dealerId = item.dealerId
+            || product?.dealerId
+            || (item.source === 'dealer' && order.dealerId !== 'master' ? order.dealerId : undefined);
+          if (!dealerId) return;
+
+          const dealer = dealers.find(candidate => candidate.id === dealerId);
+          if (!dealer) return;
+          const unitPrice = Number(item.price || 0);
+          const lineTotal = unitPrice * Number(item.quantity || 0);
+          const current = summaryMap.get(dealerId) || {
+            dealerId,
+            dealer,
+            products: [],
+            salesTotal: 0,
+            paidTotal: 0,
+            outstandingTotal: 0,
+          };
+          const productKey = `${item.productId}__${unitPrice}`;
+          const productSummary = current.products.find(summary => `${summary.productId}__${summary.unitPrice}` === productKey);
+          if (productSummary) {
+            productSummary.quantity += Number(item.quantity || 0);
+            productSummary.totalAmount += lineTotal;
+            if (!productSummary.orderIds.includes(order.id)) productSummary.orderIds.push(order.id);
+          } else {
+            current.products.push({
+              productId: item.productId,
+              name: item.name,
+              quantity: Number(item.quantity || 0),
+              unitPrice,
+              totalAmount: lineTotal,
+              orderIds: [order.id],
+            });
+          }
+          current.salesTotal += lineTotal;
+          summaryMap.set(dealerId, current);
+        });
+      });
+
+    return dealers
+      .map(dealer => {
+        const summary = summaryMap.get(dealer.id) || {
+          dealerId: dealer.id,
+          dealer,
+          products: [],
+          salesTotal: 0,
+          paidTotal: 0,
+          outstandingTotal: 0,
+        };
+        summary.paidTotal = Math.min(summary.salesTotal, paidByDealer.get(dealer.id) || 0);
+        summary.outstandingTotal = Math.max(0, summary.salesTotal - summary.paidTotal);
+        return summary;
+      });
+  }, [dealers, dealerProductPayouts, orders, products]);
+
+  const dealerProductPayoutAvailableAmount = dealerProductPayoutDealer
+    ? dealerProductPaymentSummaries.find(summary => summary.dealerId === dealerProductPayoutDealer.id)?.outstandingTotal ?? 0
+    : 0;
+
+  const visibleAdminOrders = useMemo(() => {
+    const isDealerProduct = (item: Order['items'][number]) => {
+      const product = products.find(candidate => candidate.id === item.productId);
+      return item.source === 'dealer'
+        || Boolean(item.dealerId)
+        || Boolean(product?.dealerId)
+        || item.isCentral === false;
+    };
+
+    return orders.filter(order => {
+      if (order.adminHidden) return false;
+      if (adminOrderSourceFilter === 'all') return true;
+
+      const hasDealerProduct = order.items.some(isDealerProduct);
+      const hasCentralProduct = order.items.some(item => !isDealerProduct(item));
+      return adminOrderSourceFilter === 'dealer' ? hasDealerProduct : hasCentralProduct;
+    });
+  }, [orders, products, adminOrderSourceFilter]);
 
   const categories = useMemo(() => {
     const defaultCategories = [
@@ -881,7 +1037,7 @@ export default function AdminDashboard({
     setOrdShippingAddress(o.shippingAddress || '');
     setOrdShippingCity(o.shippingCity || 'İstanbul');
     setOrdShippingDistrict(o.shippingDistrict || '');
-    setOrdShippingStatus(o.shippingStatus || 'preparing');
+    setOrdShippingStatus(getOrderShippingStatus(o, o.dealerId));
     setIsOrderFormOpen(true);
   };
 
@@ -1055,7 +1211,7 @@ export default function AdminDashboard({
           const matchingDealer = dealers.find(d => d.id === o.dealerId);
           if (matchingDealer) {
             calculatedCommission = calculateOrderFinancials(
-              o.totalPrice,
+              getCommissionableOrderTotal(o),
               matchingDealer,
               storeSettings,
               Boolean(o.isFromDealerPage),
@@ -1070,6 +1226,7 @@ export default function AdminDashboard({
           customerPhone: ordCustPhone,
           status: ordStatus,
           commissionAmount: calculatedCommission,
+          dealerCommissionAmount: calculatedCommission,
           shippingCompany: ordShippingCompany,
           shippingTrackingNumber: ordShippingTrackingNumber || `tr-${Date.now().toString().slice(-4)}`,
           shippingReceiver: ordShippingReceiver,
@@ -1077,7 +1234,8 @@ export default function AdminDashboard({
           shippingAddress: ordShippingAddress,
           shippingCity: ordShippingCity,
           shippingDistrict: ordShippingDistrict,
-          shippingStatus: ordShippingStatus
+          shippingStatus: ordShippingStatus,
+          ...getOrderShippingStatusChanges(o, o.dealerId, ordShippingStatus),
         };
       }
       return o;
@@ -1089,9 +1247,12 @@ export default function AdminDashboard({
 
   // --- SİPARİŞİ LİSTEDEN SİL ---
   const handleOrderDelete = (id: string) => {
-    if (confirm(`Sipariş ID: ${id} kaydını çöp kutusuna taşımak istediğinize emin misiniz?`)) {
-      void Promise.resolve(onDeleteMemberOrder(id)).catch(error => alert(error instanceof Error ? error.message : 'Sipariş arşivlenemedi.'));
-    }
+    if (!confirm(`Sipariş ID: ${id} kaydını yönetici panelinden silmek istediğinize emin misiniz?`)) return;
+
+    const deleteAction = onPermanentDeleteOrder || onDeleteMemberOrder;
+    void Promise.resolve(deleteAction(id)).catch(error => {
+      alert(error instanceof Error ? error.message : 'Sipariş silinemedi.');
+    });
   };
 
   const handleMemberOrderDelete = async (orderId: string) => {
@@ -1119,7 +1280,7 @@ export default function AdminDashboard({
 
       const matchingDealer = dealers.find(dealer => dealer.id === order.dealerId);
       const financials = matchingDealer
-        ? calculateOrderFinancials(order.totalPrice, matchingDealer, storeSettings, Boolean(order.isFromDealerPage))
+        ? calculateOrderFinancials(getCommissionableOrderTotal(order), matchingDealer, storeSettings, Boolean(order.isFromDealerPage))
         : null;
       const approved = decision === 'approved';
 
@@ -1134,6 +1295,7 @@ export default function AdminDashboard({
         receipt: { uploaded: true, dataUrl: order.receiptDataUrl, fileName: order.receiptFileName, status: decision, message: approved ? 'Dekont yönetici tarafından onaylandı.' : 'Dekont doğrulanamadı. Lütfen yeni bir dekont yükleyin.' },
         ...(approved && financials ? {
           commissionAmount: financials.dealerCommissionAmount,
+          dealerCommissionAmount: financials.dealerCommissionAmount,
           adminCommissionAmount: financials.adminCommissionAmount,
         } : {}),
       };
@@ -1153,7 +1315,7 @@ export default function AdminDashboard({
         const matchingDealer = dealers.find(d => d.id === o.dealerId);
         if (!matchingDealer) return o;
         const financials = calculateOrderFinancials(
-          o.totalPrice,
+          getCommissionableOrderTotal(o),
           matchingDealer,
           storeSettings,
           Boolean(o.isFromDealerPage),
@@ -1168,6 +1330,7 @@ export default function AdminDashboard({
           payment: o.payment ? { ...o.payment, status: 'approved' as const } : o.payment,
           receipt: o.receipt ? { ...o.receipt, status: 'approved' as const, message: 'Sipariş yönetici tarafından onaylandı.' } : o.receipt,
           commissionAmount: financials.dealerCommissionAmount,
+          dealerCommissionAmount: financials.dealerCommissionAmount,
           adminCommissionAmount: financials.adminCommissionAmount,
         };
       }
@@ -1194,7 +1357,8 @@ export default function AdminDashboard({
 
     const price = product.price;
     const totalPrice = price * adminOrderQuantity;
-    const financials = calculateOrderFinancials(totalPrice, dealer, storeSettings, false);
+    const commissionableTotal = product.dealerId ? 0 : totalPrice;
+    const financials = calculateOrderFinancials(commissionableTotal, dealer, storeSettings, false);
 
     const newOrder: Order = {
       id: `sip-${Date.now().toString().slice(-4)}`,
@@ -1208,11 +1372,16 @@ export default function AdminDashboard({
           productId: product.id,
           name: product.name,
           quantity: adminOrderQuantity,
-          price: price
+          price,
+          source: product.dealerId ? 'dealer' : 'central',
+          dealerId: product.dealerId,
+          isCentral: !product.dealerId,
+          storeId: product.dealerId ? undefined : 'central',
         }
       ],
       totalPrice,
       commissionAmount: financials.dealerCommissionAmount,
+      dealerCommissionAmount: financials.dealerCommissionAmount,
       adminCommissionAmount: financials.adminCommissionAmount,
       date: new Date().toISOString(),
       status: 'completed',
@@ -1264,6 +1433,7 @@ export default function AdminDashboard({
       logoUrl: settingsLogo.trim(),
       storeSlogan: settingsSlogan || 'Yerli Kırtasiye Esnafını Koruyan Hibrit E-Ticaret Modeli',
       commissionRate: Number(settingsCommission),
+      defaultPrivateCommissionRate: Number(settingsPrivateCommission),
       centralBankName,
       centralAccountHolder,
       centralIban,
@@ -1322,6 +1492,7 @@ export default function AdminDashboard({
       logoUrl: settingsLogo.trim(),
       storeSlogan: settingsSlogan || 'Yerli Kırtasiye Esnafını Koruyan Hibrit E-Ticaret Modeli',
       commissionRate: Number(settingsCommission),
+      defaultPrivateCommissionRate: Number(settingsPrivateCommission),
       centralBankName,
       centralAccountHolder,
       centralIban,
@@ -1428,7 +1599,7 @@ export default function AdminDashboard({
         </div>
 
         {/* Action Buttons based on subtabs */}
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           {activeSubTab === 'products' && (
             <div className="flex gap-2">
               <button
@@ -1514,6 +1685,24 @@ export default function AdminDashboard({
           }`}
         >
           <Users className="w-3.5 h-3.5" /> Bayiler & Esnaflar ({dealers.length})
+        </button>
+        <button
+          id="admin-subtab-commission-requests"
+          type="button"
+          onClick={() => {
+            setActiveSubTab('dealers');
+            requestAnimationFrame(() => {
+              document.getElementById('admin-pending-commission-requests')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+          }}
+          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer bg-amber-500 text-slate-950 hover:bg-amber-400 shadow-xs"
+        >
+          <Coins className="w-3.5 h-3.5" /> Komisyonlar
+          {pendingRequests.length > 0 && (
+            <span className="min-w-4 h-4 px-1 rounded-full bg-slate-950 text-white text-[9px] flex items-center justify-center">
+              {pendingRequests.length}
+            </span>
+          )}
         </button>
         <button
           id="admin-subtab-members"
@@ -1729,7 +1918,7 @@ export default function AdminDashboard({
                         {Number(dealer.salesVolume ?? 0).toLocaleString('tr-TR')} TL
                       </span>
                       <span className="text-[9px] text-amber-600 font-semibold">
-                        {Number(dealer.commissionEarned ?? 0).toFixed(2)} TL
+                        {Number(dealerFinancials.get(dealer.id)?.commissionEarned ?? dealer.commissionEarned ?? 0).toFixed(2)} TL
                       </span>
                     </div>
                   </div>
@@ -2257,11 +2446,11 @@ export default function AdminDashboard({
                 {/* Financial Customization inside Settings */}
                 <div className="space-y-4 bg-slate-50 border border-slate-200 rounded-2xl p-5">
                   <div className="flex justify-between items-center">
-                    <label className="block text-[11px] font-bold text-slate-600">Esnaf Sabit Komisyon Oranı (%) *</label>
+                    <label className="block text-[11px] font-bold text-slate-600">Ortak Ürün Bayi Kazanç Oranı (%) *</label>
                     <span className="font-mono font-extrabold text-sm text-purple-700 bg-purple-100/60 px-2 py-0.5 rounded-md">%{settingsCommission}</span>
                   </div>
                   <p className="text-[10px] text-slate-400">
-                    Müşterilerin ciro ödemesinden esnaflara otomatik aktarılacak kazanç oranı. Komisyon oranını değiştirirseniz, ciro liderliği sıralamaları ve esnaf bakiyeleri güncel orana göre yeniden hesaplanır!
+                    Yönetici tarafından belirlenen bu oran, bayi vitrininden seçilen merkez ürünlerinde bayinin kazancı olarak kullanılır. Değişiklik kaydedildiğinde açık tüm ekranlara ve finans hesaplarına yansır.
                   </p>
 
                   <input
@@ -2277,6 +2466,28 @@ export default function AdminDashboard({
                     <span>%0 (Min)</span>
                     <span>%25</span>
                     <span>%50 (Maks)</span>
+                  </div>
+
+                  <div className="flex justify-between items-center pt-3 border-t border-slate-200">
+                    <label className="block text-[11px] font-bold text-slate-600">Varsayılan Vitrin Bayi Kazanç Oranı (%) *</label>
+                    <span className="font-mono font-extrabold text-sm text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded-md">%{settingsPrivateCommission}</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400">
+                    Bayinin kendi ürünlerinden oluşan vitrin satışlarında kullanılacak yönetici oranıdır. Bayi ürünleri merkez bayi komisyonuna dahil edilmez; bu oran yalnızca bayi kazancı için kullanılır.
+                  </p>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="0.5"
+                    value={settingsPrivateCommission}
+                    onChange={e => setSettingsPrivateCommission(Number(e.target.value))}
+                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-600"
+                  />
+                  <div className="flex justify-between text-[10px] text-slate-400 font-bold font-mono">
+                    <span>%0 (Min)</span>
+                    <span>%50</span>
+                    <span>%100 (Maks)</span>
                   </div>
                 </div>
               </div>
@@ -3771,6 +3982,98 @@ export default function AdminDashboard({
             </div>
           </div>
 
+          <div className="bg-white border border-emerald-200 rounded-2xl p-6 space-y-5 shadow-2xs" id="admin-dealer-product-payouts">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-emerald-100 pb-4">
+              <div>
+                <h3 className="font-display font-bold text-sm text-slate-900 tracking-tight uppercase flex items-center gap-2">
+                  <Coins className="w-4.5 h-4.5 text-emerald-600" />
+                  Bayi Ürünleri Satış ve Merkez Havuz Ödeme Yönetimi
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Bayilerin kendi yüklediği ürünlerin hangi siparişte, kaç adet ve hangi birim fiyatla satıldığını; ödenen ve kalan tutarı takip edin.
+                </p>
+              </div>
+              <span className="rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1.5 text-[10px] font-bold text-emerald-700">
+                Komisyon değil, ürün satış bedeli
+              </span>
+            </div>
+
+            {dealerProductPaymentSummaries.length === 0 ? (
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-6 text-center text-xs text-slate-400">
+                Tamamlanmış bayi ürünü satışı bulunmuyor.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs" id="admin-dealer-product-payout-table">
+                  <thead>
+                    <tr className="bg-emerald-50/60 text-slate-500 font-bold uppercase tracking-wider border-b border-emerald-100">
+                      <th className="p-3">Bayi</th>
+                      <th className="p-3">Satılan Bayi Ürünleri</th>
+                      <th className="p-3 text-right">Satış Toplamı</th>
+                      <th className="p-3 text-right">Merkezden Ödenen</th>
+                      <th className="p-3 text-right">Ödenecek Bakiye</th>
+                      <th className="p-3 text-right">İşlem</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
+                    {dealerProductPaymentSummaries.map(summary => (
+                      <tr key={summary.dealerId} className="align-top hover:bg-emerald-50/20">
+                        <td className="p-3 min-w-[150px]">
+                          <span className="font-bold text-slate-900 block">{summary.dealer.name}</span>
+                          <span className="text-[10px] text-slate-400">Bayi ID: {summary.dealerId}</span>
+                          <span className="text-[10px] text-slate-400 block">{summary.dealer.city} / {summary.dealer.district}</span>
+                        </td>
+                        <td className="p-3 min-w-[360px]">
+                          <div className="space-y-2">
+                            {summary.products.length === 0 ? (
+                              <span className="text-[10px] text-slate-400">Henüz tamamlanmış bayi ürünü satışı yok.</span>
+                            ) : summary.products.map(productSummary => (
+                              <div key={`${summary.dealerId}-${productSummary.productId}-${productSummary.unitPrice}`} className="rounded-lg border border-slate-100 bg-slate-50/70 p-2.5">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="font-bold text-slate-800">{productSummary.name}</span>
+                                  <span className="font-mono font-bold text-slate-900">{productSummary.totalAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} TL</span>
+                                </div>
+                                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-500">
+                                  <span>{productSummary.quantity} adet</span>
+                                  <span>Birim: {productSummary.unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} TL</span>
+                                  <span>{productSummary.orderIds.length} sipariş</span>
+                                  <span className="font-mono">{productSummary.orderIds.join(', ')}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="p-3 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
+                          {summary.salesTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} TL
+                        </td>
+                        <td className="p-3 text-right font-mono font-bold text-blue-600 whitespace-nowrap">
+                          {summary.paidTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} TL
+                        </td>
+                        <td className="p-3 text-right font-mono font-extrabold text-emerald-700 whitespace-nowrap">
+                          {summary.outstandingTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} TL
+                        </td>
+                        <td className="p-3 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            disabled={summary.outstandingTotal <= 0}
+                            onClick={() => {
+                              setDealerProductPayoutDealer(summary.dealer);
+                              setDealerProductPayoutAmount(summary.outstandingTotal);
+                              setIsDealerProductPayoutModalOpen(true);
+                            }}
+                            className="rounded-lg bg-emerald-600 px-2.5 py-1.5 text-[10px] font-bold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                          >
+                            {summary.outstandingTotal > 0 ? 'Merkezden Öde' : 'Ödendi'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
           {/* Bayi Komisyon Ödeme Talepleri Bölümü */}
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 space-y-4" id="admin-pending-commission-requests">
             <h3 className="font-display font-bold text-xs text-slate-900 tracking-tight uppercase flex items-center gap-2">
@@ -3989,7 +4292,7 @@ export default function AdminDashboard({
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-600 mb-1 font-semibold text-emerald-700">Vitrin Komisyon (%)</label>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1 font-semibold text-emerald-700">Vitrin Bayi Komisyonu (%)</label>
                       <input
                         type="number"
                         min="0"
@@ -4186,7 +4489,7 @@ export default function AdminDashboard({
                         <span className="font-extrabold block">{(dealerFinancials.get(dealer.id)?.commissionEarned ?? 0).toLocaleString('tr-TR')} TL</span>
                         <div className="text-[9px] text-slate-400 font-medium flex flex-col items-end">
                           <span>Ortak: {dealer.commissionRate !== undefined ? `%${dealer.commissionRate} Özel` : `%${storeSettings.commissionRate} Genel`}</span>
-                          <span>Vitrin: {dealer.privateCommissionRate !== undefined ? `%${dealer.privateCommissionRate} Özel` : '%5 Genel'}</span>
+                          <span>Vitrin Bayi Komisyonu: {dealer.privateCommissionRate !== undefined ? `%${dealer.privateCommissionRate} Özel` : `%${storeSettings.defaultPrivateCommissionRate ?? 5} Genel`}</span>
                           <span>Sektör Kesintisi: {dealer.adminSectorCommissionRate !== undefined ? `%${dealer.adminSectorCommissionRate} Özel` : `%${(storeSettings?.sectorAdminCommissions && dealer.sector && storeSettings.sectorAdminCommissions[dealer.sector]) !== undefined ? storeSettings.sectorAdminCommissions[dealer.sector!] : 10} Genel`}</span>
                         </div>
                       </td>
@@ -4202,11 +4505,21 @@ export default function AdminDashboard({
                         </span>
                       </td>
                       <td className="p-3 text-right space-x-1 flex justify-end items-center">
-                        {(dealerFinancials.get(dealer.id)?.commissionEarned ?? 0) > 0 && (
+                        {Math.max(
+                          0,
+                          (dealerFinancials.get(dealer.id)?.commissionEarned ?? 0)
+                            - (paidCommissionByDealer.get(dealer.id) || 0)
+                            - (pendingCommissionByDealer.get(dealer.id) || 0),
+                        ) > 0 && (
                           <button
                             onClick={() => {
                               setDirectPayDealer(dealer);
-                              setDirectPayAmount(dealerFinancials.get(dealer.id)?.commissionEarned ?? 0);
+                              setDirectPayAmount(Math.max(
+                                0,
+                                (dealerFinancials.get(dealer.id)?.commissionEarned ?? 0)
+                                  - (paidCommissionByDealer.get(dealer.id) || 0)
+                                  - (pendingCommissionByDealer.get(dealer.id) || 0),
+                              ));
                               setIsDirectPayModalOpen(true);
                             }}
                             className="bg-amber-500 hover:bg-amber-600 text-white font-bold px-2 py-0.5 rounded text-[10px] hover:shadow-xs transition-all cursor-pointer flex items-center gap-1 mr-1"
@@ -4673,11 +4986,29 @@ export default function AdminDashboard({
               <div className="space-y-1">
                 <h3 className="font-display font-bold text-xs text-slate-900 tracking-tight uppercase flex items-center gap-1.5">
                   <FileText className="w-4.5 h-4.5 text-purple-600" />
-                  Merkezi Sipariş Havuzu & Operasyon İşlemleri ({orders.filter(o => !o.adminHidden).length} Sipariş)
+                  Merkezi Sipariş Havuzu & Operasyon İşlemleri ({visibleAdminOrders.length} Sipariş)
                 </h3>
                 <p className="text-[10px] text-slate-400 font-medium">
                   * Sipariş geçmişinden gizlenen kayıtların bayi hakedişleri korunur; komisyon yalnızca komisyon yönetiminden kaldırılır.
                 </p>
+                <div className="flex flex-wrap gap-1.5 pt-2">
+                  {([
+                    ['all', 'Tümü'],
+                    ['dealer', 'Bayi Ürünleri'],
+                    ['central', 'Merkez Ürünleri'],
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setAdminOrderSourceFilter(value)}
+                      className={`rounded-full border px-2.5 py-1 text-[10px] font-bold transition-colors ${adminOrderSourceFilter === value
+                        ? 'border-purple-600 bg-purple-600 text-white'
+                        : 'border-slate-200 bg-white text-slate-500 hover:border-purple-300 hover:text-purple-700'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <button
@@ -4709,12 +5040,12 @@ export default function AdminDashboard({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
-                  {orders.filter(o => !o.adminHidden).length === 0 ? (
+                  {visibleAdminOrders.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="p-6 text-center text-slate-400 text-xs">Henüz sistemde sipariş kaydı oluşmamıştır.</td>
                     </tr>
                   ) : (
-                    [...orders].reverse().filter(order => !order.adminHidden).map(order => (
+                    [...visibleAdminOrders].reverse().map(order => (
                       <tr id={`admin-order-row-${order.id}`} key={order.id} onClick={() => setSelectedOrderDetail(order)} className={`hover:bg-slate-50/50 cursor-pointer ${!order.adminApproved ? 'bg-amber-50/20' : ''}`} title="Detaylı görüntülemek için tıklayın">
                         <td className="p-3 font-semibold text-slate-900">
                           <span className="block">{order.id}</span>
@@ -4771,15 +5102,15 @@ export default function AdminDashboard({
                               <span className="text-[9px] text-amber-500 font-semibold block">Takip No Yok</span>
                             )}
                             <span className={`px-1.5 py-0.2 rounded-sm text-[9px] font-bold uppercase w-fit block ${
-                              order.shippingStatus === 'delivered'
+                              getOrderShippingStatus(order, order.dealerId) === 'delivered'
                                 ? 'bg-emerald-50 text-emerald-700'
-                                : order.shippingStatus === 'shipped'
+                                : getOrderShippingStatus(order, order.dealerId) === 'shipped'
                                 ? 'bg-blue-50 text-blue-700'
-                                : order.shippingStatus === 'cancelled'
+                                : getOrderShippingStatus(order, order.dealerId) === 'cancelled'
                                 ? 'bg-rose-50 text-rose-700'
                                 : 'bg-amber-50 text-amber-700'
                             }`}>
-                              {order.shippingStatus === 'delivered' ? 'Teslim Edildi' : order.shippingStatus === 'shipped' ? 'Yolda / Sevk Edildi' : order.shippingStatus === 'cancelled' ? 'İptal / İade' : 'Hazırlanıyor'}
+                              {getOrderShippingStatus(order, order.dealerId) === 'delivered' ? 'Teslim Edildi' : getOrderShippingStatus(order, order.dealerId) === 'shipped' ? 'Yolda / Sevk Edildi' : getOrderShippingStatus(order, order.dealerId) === 'cancelled' ? 'İptal / İade' : 'Hazırlanıyor'}
                             </span>
                             {order.shippingAddress && (
                               <span className="text-[9px] text-slate-400 block max-w-[160px] truncate" title={`${order.shippingCity}/${order.shippingDistrict}: ${order.shippingAddress}`}>
@@ -4798,7 +5129,7 @@ export default function AdminDashboard({
                             <span className="text-rose-500 line-through">0.00 TL</span>
                           ) : (
                             <div className="flex flex-col items-start font-mono">
-                              <span>+{Number(order.commissionAmount ?? 0).toFixed(2)} TL</span>
+                              <span>+{Number((order.commissionAmount !== undefined ? order.commissionAmount : order.adminCommissionAmount !== undefined ? Math.max(0, Number(order.totalPrice) - Number(order.adminCommissionAmount)) : 0)).toFixed(2)} TL</span>
                               {order.isFromDealerPage && (
                                 <span className="text-[8px] bg-amber-50 text-amber-700 px-1 py-0.2 rounded-sm font-bold uppercase mt-0.5 whitespace-nowrap font-sans">Vitrin Hakedişi</span>
                               )}
@@ -4879,7 +5210,7 @@ export default function AdminDashboard({
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleOrderDelete(order.id); }}
                                 className="p-1 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg inline-flex items-center cursor-pointer"
-                                title="Siparişi geçmişten gizle; komisyonu koru"
+                                title="Siparişi yönetici panelinden sil; komisyonu koru"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -4891,6 +5222,79 @@ export default function AdminDashboard({
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isDealerProductPayoutModalOpen && dealerProductPayoutDealer && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl border border-slate-100">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <h3 className="font-display font-bold text-slate-900 text-sm uppercase flex items-center gap-1.5">
+                <Coins className="w-5 h-5 text-emerald-600" /> Bayi Ürün Satış Ödemesi
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDealerProductPayoutModalOpen(false);
+                  setDealerProductPayoutDealer(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 text-xs text-emerald-900 leading-relaxed">
+              <strong>{dealerProductPayoutDealer.name}</strong> bayisinin tamamlanmış bayi ürünü satış bedeli merkez havuzdan ödenecektir. Bu işlem bayi komisyonundan ayrı tutulur.
+            </div>
+            <div className="flex justify-between items-center rounded-xl bg-slate-50 border border-slate-100 p-3 text-sm">
+              <span className="font-bold text-slate-600">Ödenecek bakiye</span>
+              <span className="font-mono font-extrabold text-emerald-700">{dealerProductPayoutAvailableAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} TL</span>
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 mb-1">Ödeme tutarı (TL)</label>
+              <input
+                type="number"
+                min="0.01"
+                max={dealerProductPayoutAvailableAmount}
+                step="0.01"
+                value={dealerProductPayoutAmount || ''}
+                onChange={event => setDealerProductPayoutAmount(event.target.value === '' ? 0 : Number(event.target.value))}
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-hidden"
+              />
+            </div>
+            <div className="flex gap-2 border-t border-slate-100 pt-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDealerProductPayoutModalOpen(false);
+                  setDealerProductPayoutDealer(null);
+                }}
+                className="flex-1 rounded-xl bg-slate-100 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-200 cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!Number.isFinite(dealerProductPayoutAmount) || dealerProductPayoutAmount <= 0 || dealerProductPayoutAmount > dealerProductPayoutAvailableAmount) {
+                    alert(`Lütfen 0 ile ${dealerProductPayoutAvailableAmount.toFixed(2)} TL arasında geçerli bir ödeme tutarı giriniz.`);
+                    return;
+                  }
+                  try {
+                    await onPayDealerProductSales(dealerProductPayoutDealer.id, Number(dealerProductPayoutAmount.toFixed(2)));
+                    setIsDealerProductPayoutModalOpen(false);
+                    setDealerProductPayoutDealer(null);
+                    setDealerProductPayoutAmount(0);
+                  } catch (error) {
+                    alert(error instanceof Error ? error.message : 'Bayi ürün ödemesi kaydedilemedi.');
+                  }
+                }}
+                className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 cursor-pointer"
+              >
+                Ödemeyi Kaydet
+              </button>
             </div>
           </div>
         </div>
@@ -4931,7 +5335,7 @@ export default function AdminDashboard({
                   <span className="font-bold text-slate-800">{directPayDealer.owner}</span>
                 </div>
                 <div className="flex justify-between py-1.5 border-b border-slate-50">
-                  <span className="text-slate-500">Birimci Komisyon:</span>
+                  <span className="text-slate-500">Çekilebilir Komisyon:</span>
                   <span className="font-extrabold text-amber-600 font-mono">{directPayAvailableAmount.toFixed(2)} TL</span>
                 </div>
               </div>
@@ -5007,6 +5411,9 @@ export default function AdminDashboard({
         onClose={() => setSelectedOrderDetail(null)}
         order={selectedOrderDetail}
         products={products}
+        dealers={dealers}
+        commissionRate={storeSettings.commissionRate}
+        viewerRole="admin"
       />
     </div>
   );

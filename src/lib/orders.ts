@@ -1,5 +1,6 @@
-import { collection, doc, getDocs, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch, type Query } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction, serverTimestamp, setDoc, updateDoc, where, writeBatch, type Query } from 'firebase/firestore';
 import type { Order } from '../types';
+import { assertValidTransition } from './orderStateMachine';
 import { archiveDocument } from './archive';
 import { firestore } from './firebase';
 
@@ -23,7 +24,8 @@ const mapOrder = (item: { id: string; data: () => Record<string, unknown> }): Or
 
 const getOrderDocumentId = (orderData: OrderInput) => {
   if (!orderData.orderReference) return null;
-  return [orderData.userId, orderData.orderReference, orderData.dealerId]
+  const uniqueSuffix = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  return [orderData.userId, orderData.orderReference, orderData.dealerId, uniqueSuffix]
     .map(value => encodeURIComponent(value))
     .join('__');
 };
@@ -71,6 +73,35 @@ const commitInChunks = async (operations: Array<(batch: ReturnType<typeof writeB
   }
 };
 
+export async function decreaseStockForOrderItems(items: Array<{ productId: string; quantity: number; unitQuantity?: number }>) {
+  await runTransaction(firestore, async (transaction) => {
+    const requiredStockByProduct = new Map<string, number>();
+    items.forEach(item => {
+      const requiredQuantity = item.quantity * (item.unitQuantity || 1);
+      requiredStockByProduct.set(item.productId, (requiredStockByProduct.get(item.productId) || 0) + requiredQuantity);
+    });
+
+    const productReads = Array.from(requiredStockByProduct.entries()).map(async ([productId, requiredQuantity]) => {
+      const prodRef = doc(firestore, 'products', productId);
+      const prodSnap = await transaction.get(prodRef);
+      if (!prodSnap.exists()) {
+        throw new Error(`Ürün bulunamadı: ${productId}`);
+      }
+      const currentStock = prodSnap.data().stock ?? 0;
+      if (currentStock < requiredQuantity) {
+        throw new Error(`Yetersiz stok! Ürün ID: ${productId}, Mevcut: ${currentStock}, İstenen: ${requiredQuantity}`);
+      }
+      return { ref: prodRef, newStock: currentStock - requiredQuantity };
+    });
+
+    const resolvedProducts = await Promise.all(productReads);
+
+    resolvedProducts.forEach(({ ref, newStock }) => {
+      transaction.update(ref, { stock: newStock, updatedAt: new Date().toISOString() });
+    });
+  });
+}
+
 const getOrderReference = (orderData: OrderInput) => {
   const orderDocumentId = getOrderDocumentId(orderData);
   return orderDocumentId
@@ -102,6 +133,7 @@ export const createOrderBundle = async (masterOrder: OrderInput, subOrders: Orde
       orderRole: 'master' as const,
     };
     const singleReference = getOrderReference(singleOrder);
+    await decreaseStockForOrderItems(singleOrder.items);
     await setDoc(singleReference, prepareOrderData({
       ...singleOrder,
       masterOrderId: singleReference.id,
@@ -112,6 +144,10 @@ export const createOrderBundle = async (masterOrder: OrderInput, subOrders: Orde
 
   const masterReference = getOrderReference(masterOrder);
   const subReferences = subOrders.map(getOrderReference);
+
+  const allItems = subOrders.flatMap(sub => sub.items);
+  await decreaseStockForOrderItems(allItems);
+
   const batch = writeBatch(firestore);
 
   batch.set(masterReference, prepareOrderData({
@@ -177,14 +213,10 @@ const subscribeToOrderQueries = (
 
 export const subscribeToDealerOrders = (
   dealerId: string,
-  dealerUserId: string | undefined,
   onChange: (orders: Order[]) => void,
   onError: (error: Error) => void,
 ) => subscribeToOrderQueries(
-  [
-    query(collection(firestore, ORDERS_COLLECTION), where('dealerId', '==', dealerId)),
-    ...(dealerUserId ? [query(collection(firestore, ORDERS_COLLECTION), where('dealerUserId', '==', dealerUserId))] : []),
-  ],
+  [query(collection(firestore, ORDERS_COLLECTION), where('dealerId', '==', dealerId))],
   onChange,
   onError,
 );
@@ -221,8 +253,15 @@ export const updateOrder = async (orderId: string, changes: Partial<Omit<Order, 
   });
 };
 
-export const updateOrderStatus = async (orderId: string, status: Order['status']) => {
-  await updateOrder(orderId, { status });
+export const updateOrderStatus = async (orderId: string, newStatus: Order['status']) => {
+  const orderDoc = doc(firestore, ORDERS_COLLECTION, orderId);
+  const orderSnap = await getDoc(orderDoc);
+  if (!orderSnap.exists()) {
+    throw new Error(`Sipariş bulunamadı: ${orderId}`);
+  }
+  const currentStatus = orderSnap.data().status as Order['status'];
+  assertValidTransition(currentStatus, newStatus);
+  await updateOrder(orderId, { status: newStatus });
 };
 
 export const hideOrderFromMember = async (orderId: string) => {

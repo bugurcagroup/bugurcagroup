@@ -175,6 +175,22 @@ async function startServer() {
     }
   }
 
+  const getCentralOrderTotal = (order: any, products: any[]) => (Array.isArray(order.items) ? order.items : []).reduce((total: number, item: any) => {
+    const product = products.find(candidate => candidate.id === item.productId);
+    const isDealerProduct = item.source === 'dealer' || Boolean(item.dealerId) || Boolean(product?.dealerId);
+    return isDealerProduct ? total : total + Math.max(0, Number(item.price) || 0) * Math.max(0, Number(item.quantity) || 0);
+  }, 0);
+
+  const getDealerPageFinancials = (order: any, dealer: any, settings: any) => {
+    const centralTotal = getCentralOrderTotal(order, getDb().products || []);
+    const dealerRate = dealer?.commissionRate !== undefined ? dealer.commissionRate : settings.commissionRate;
+    const dealerCommissionAmount = Number((centralTotal * (Math.max(0, Number(dealerRate) || 0) / 100)).toFixed(2));
+    return {
+      dealerCommissionAmount,
+      adminCommissionAmount: Number(Math.max(0, centralTotal - dealerCommissionAmount).toFixed(2)),
+    };
+  };
+
   // API Route: POST /api/upload-temp (from phone/tablet)
   app.post("/api/upload-temp", express.json({ limit: "15mb" }), (req, res) => {
     try {
@@ -359,13 +375,9 @@ async function startServer() {
             let adminCommissionAmount = 0;
 
             if (order.isFromDealerPage) {
-              // Private product
-              const adminPrivateRate = (dealer && dealer.privateCommissionRate !== undefined)
-                ? dealer.privateCommissionRate
-                : (db.storeSettings.defaultPrivateCommissionRate !== undefined ? db.storeSettings.defaultPrivateCommissionRate : 5.0);
-
-              adminCommissionAmount = Number((order.totalPrice * (adminPrivateRate / 100)).toFixed(2));
-              commissionAmount = Number((order.totalPrice - adminCommissionAmount).toFixed(2));
+              const financials = getDealerPageFinancials(order, dealer, db.storeSettings);
+              commissionAmount = financials.dealerCommissionAmount;
+              adminCommissionAmount = financials.adminCommissionAmount;
             } else {
               // Central product
               commissionAmount = Number((order.totalPrice * commissionRateFraction).toFixed(2));
@@ -417,12 +429,9 @@ async function startServer() {
 
               dealerCompletedOrders.forEach((o: any) => {
                 if (o.isFromDealerPage) {
-                  const adminPrivateRate = d.privateCommissionRate !== undefined
-                    ? d.privateCommissionRate
-                    : (settings.defaultPrivateCommissionRate !== undefined ? settings.defaultPrivateCommissionRate : 5.0);
-
-                  o.adminCommissionAmount = Number((o.totalPrice * (adminPrivateRate / 100)).toFixed(2));
-                  o.commissionAmount = Number((o.totalPrice - o.adminCommissionAmount).toFixed(2));
+                  const financials = getDealerPageFinancials(o, d, settings);
+                  o.adminCommissionAmount = financials.adminCommissionAmount;
+                  o.commissionAmount = financials.dealerCommissionAmount;
                 } else {
                   o.commissionAmount = Number((o.totalPrice * dRateFraction).toFixed(2));
 
@@ -615,12 +624,9 @@ async function startServer() {
 
               dealerCompletedOrders.forEach((o: any) => {
                 if (o.isFromDealerPage) {
-                  const adminPrivateRate = d.privateCommissionRate !== undefined
-                    ? d.privateCommissionRate
-                    : (settings.defaultPrivateCommissionRate !== undefined ? settings.defaultPrivateCommissionRate : 5.0);
-
-                  o.adminCommissionAmount = Number((o.totalPrice * (adminPrivateRate / 100)).toFixed(2));
-                  o.commissionAmount = Number((o.totalPrice - o.adminCommissionAmount).toFixed(2));
+                  const financials = getDealerPageFinancials(o, d, settings);
+                  o.adminCommissionAmount = financials.adminCommissionAmount;
+                  o.commissionAmount = financials.dealerCommissionAmount;
                 } else {
                   o.commissionAmount = Number((o.totalPrice * dRateFraction).toFixed(2));
 

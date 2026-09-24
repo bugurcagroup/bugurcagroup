@@ -72,9 +72,9 @@ interface CustomerStoreProps {
 
 const DEFAULT_BRAND_MARQUEE_IMAGE = 'https://cdn.builder.io/api/v1/image/assets%2F690dc81201dd442691c0fbf0269adbab%2Fbaa373b7ef684edb945da36057e08b93?format=webp&width=800&height=1200';
 
-const LEGAL_DOCUMENT_VERSION = 'v1.0';
+export const LEGAL_DOCUMENT_VERSION = 'v1.0';
 
-const LEGAL_DOCUMENTS = {
+export const LEGAL_DOCUMENTS = {
   membership: {
     title: 'Üyelik Sözleşmesi',
     sections: [
@@ -87,7 +87,9 @@ const LEGAL_DOCUMENTS = {
     title: 'KVKK Aydınlatma Metni',
     sections: [
       ['Veri İşleme ve Paylaşım', 'Üye, üyelik kaydı sırasında paylaştığı kişisel verilerin siparişlerin yönetilmesi ve lojistik süreçlerin tamamlanması için iş ortaklarımızla paylaşılacağını kabul eder.'],
-      ['Veri Doğruluğu', 'Üye, kendi verilerini sisteme girerken doğru girmekle yükümlüdür; veri giriş hatalarından kaynaklı doğabilecek tüm olumsuzluklarda sorumluluk tamamen üyeye aittir.']
+      ['Veri Doğruluğu', 'Üye, kendi verilerini sisteme girerken doğru girmekle yükümlüdür; veri giriş hatalarından kaynaklı doğabilecek tüm olumsuzluklarda sorumluluk tamamen üyeye aittir.'],
+      ['Veri Sahibinin Hakları (KVKK Madde 11)', 'KVKK Madde 11 uyarınca üye; kişisel verilerinin işlenip işlenmediğini öğrenme, işlenmişse buna ilişkin bilgi talep etme, işlenme amacını ve amacına uygun kullanılıp kullanılmadığını öğrenme, yurt içinde veya yurt dışında aktarıldığı üçüncü kişileri bilme, eksik veya yanlış işlenmişse düzeltilmesini isteme haklarına sahiptir.'],
+      ['Başvuru Yolu', 'KVKK Madde 11 kapsamındaki taleplerinizi bugurcagroup@gmail.com e-posta adresine iletebilirsiniz; başvurular en geç 30 gün içinde sonuçlandırılır.']
     ]
   },
   'distance-sales': {
@@ -104,6 +106,23 @@ const LEGAL_DOCUMENTS = {
     sections: [
       ['Sipariş Öncesi Bilgilendirme', 'Sipariş toplamı, seçilen bayi, teslimat bilgileri, ödeme yöntemi ve kargo bilgileri sipariş onayından önce üyeye sunulur. Üye, bu bilgileri kontrol ederek siparişini onaylar.'],
       ['Teslimat ve İade', 'Teslimat, kargo hasarı ve iade koşulları Mesafeli Satış Sözleşmesi kapsamında uygulanır. Üye, siparişi onaylamadan önce ilgili sözleşmeye kalıcı olarak erişebilir.']
+    ]
+  },
+  'iptal-iade': {
+    title: 'İptal ve İade Koşulları',
+    sections: [
+      ['İade Süresi', 'Ürün teslim tarihinden itibaren 14 gün içinde, yazılı olarak bildirmek koşuluyla cayma hakkınızı kullanabilirsiniz.'],
+      ['İade Koşulları', 'İade edilecek ürünler; kullanılmamış, etiketi ve ambalajı zarar görmemiş, faturasıyla birlikte eksiksiz teslim edilmelidir. Kullanılmış ürünler iade kapsamında değildir.'],
+      ['Kargo Ücreti', 'Cayma hakkından kaynaklanan iade kargosu, ücretsiz iade anlaşmamız nedeniyle firmamız tarafından karşılanır.'],
+      ['İade Bedeli', 'İadeniz tarafımıza ulaştıktan sonra ürün bedeli, ödeme yönteminize uygun şekilde en geç 14 gün içinde iade edilir.']
+    ]
+  },
+  'kargo-teslimat': {
+    title: 'Kargo ve Teslimat Koşulları',
+    sections: [
+      ['Teslimat Süresi', 'Siparişleriniz, siparişin onaylanmasını takiben 1-3 iş günü içinde kargoya teslim edilir; teslim süresi kargo firmasının çalışma koşullarına göre değişebilir.'],
+      ['Hasarlı Teslimat', 'Alıcı, paketi teslim alırken hasarlı veya ezilmişse kargo firmasına Hasar Tespit Tutanağı düzenlettirmelidir; tutanaksız teslim alınan paketlerden işletmemiz sorumlu değildir.'],
+      ['Teslimat Adresi', 'Sipariş sırasında belirttiğiniz adres esas alınır; eksik veya hatalı adres bildiriminden kaynaklanan gecikmelerden işletmemiz sorumlu değildir.']
     ]
   }
 } as const;
@@ -348,6 +367,7 @@ export default function CustomerStore({
   React.useEffect(() => {
     setIsViewingPrivatePage(false);
     setPrivateStoreTab('central');
+    setCustomerSelectedSector(selectedDealer?.sector || 'Kırtasiye');
   }, [selectedDealer]);
 
   // Safe window.location.origin evaluation
@@ -390,6 +410,7 @@ export default function CustomerStore({
   const [accountEmail, setAccountEmail] = useState('');
   const [accountPassword, setAccountPassword] = useState('');
   const [accountPhone, setAccountPhone] = useState('');
+  const [isAccountSubmitting, setIsAccountSubmitting] = useState(false);
   const [hasAcceptedMembershipTerms, setHasAcceptedMembershipTerms] = useState(false);
   const [hasAcceptedCheckoutTerms, setHasAcceptedCheckoutTerms] = useState(false);
   const [activeLegalDocument, setActiveLegalDocument] = useState<keyof typeof LEGAL_DOCUMENTS | null>(null);
@@ -560,6 +581,8 @@ export default function CustomerStore({
     if (!val && propOnCloseApplicationModal) propOnCloseApplicationModal();
   } : setLocalIsApplicationModalOpen;
   const [isApplicationSuccess, setIsApplicationSuccess] = useState(false);
+  const [isApplicationSubmitting, setIsApplicationSubmitting] = useState(false);
+  const [applicationError, setApplicationError] = useState('');
   const [appShopName, setAppShopName] = useState('');
   const [appOwnerName, setAppOwnerName] = useState('');
   const [appSector, setAppSector] = useState('Kırtasiye');
@@ -588,7 +611,8 @@ export default function CustomerStore({
     return products.filter(product => {
       if (selectedDealer) {
         if (privateStoreTab === 'special') {
-          // Bu esnafa ait özel ürünler
+          // Bu esnafa ait özel ürünler - SADECE referral link ile gelmişse (isReferralLocked)
+          if (!isReferralLocked) return false;
           return product.dealerId === selectedDealer.id;
         } else {
           // Ortak (Merkez) ürünleri
@@ -599,7 +623,7 @@ export default function CustomerStore({
         return !product.dealerId;
       }
     });
-  }, [products, selectedDealer, privateStoreTab]);
+  }, [products, selectedDealer, privateStoreTab, isReferralLocked]);
 
   // Kategoriler ürünlerden otomatik oluşturulur
   const categories = useMemo(() => {
@@ -707,8 +731,18 @@ export default function CustomerStore({
       alert('Sepetiniz boş!');
       return;
     }
+    // Stok kontrolü - oversell önleme
+    const stockCheck = cartItems.find(item => {
+      const product = products.find(p => p.id === item.product.id);
+      return product && product.stock < item.quantity * item.unitQuantity;
+    });
+    if (stockCheck) {
+      const product = products.find(p => p.id === stockCheck.product.id);
+      alert(`Yetersiz stok! "${stockCheck.product.name}" için mevcut stok: ${product?.stock || 0}, sepetinizde gereken toplam birim: ${stockCheck.quantity * stockCheck.unitQuantity}`);
+      return;
+    }
     if (!hasAcceptedCheckoutTerms || !hasAcceptedCheckoutKvkk) {
-      alert('Mesafeli Satış Sözleşmesi ve Ön Bilgilendirme Formu onayı gereklidir.');
+      alert('Mesafeli Satış Sözleşmesi, Ön Bilgilendirme Formu ve KVKK Aydınlatma Metni onayları gereklidir.');
       return;
     }
     if (!shippingReceiver || !shippingPhone || !shippingAddress || !shippingDistrict) {
@@ -740,8 +774,8 @@ export default function CustomerStore({
       setPaymentError('Banka havalesi dekontunu yüklemeden sipariş oluşturamazsınız.');
       return;
     }
-    if (paymentMethod === 'card' && (!cardNumber || !cardExpiry || !cardCvc)) {
-      setPaymentError('Kart ödemesi için kart bilgilerini eksiksiz girin.');
+    if (paymentMethod === 'card' && (!/^\d{4}( \d{4}){3}$/.test(cardNumber) || !/^\d{2}\/\d{2}$/.test(cardExpiry) || !/^\d{3}$/.test(cardCvc))) {
+      setPaymentError('POS ödemesi için 16 haneli kart numarası, geçerli son kullanma tarihi ve 3 haneli CVC girin.');
       return;
     }
     if (checkoutSubmissionRef.current) return;
@@ -762,7 +796,7 @@ export default function CustomerStore({
           shippingCity,
           shippingDistrict,
           customerSelectedSector,
-          isViewingPrivatePage,
+          isViewingPrivatePage && privateStoreTab === 'special',
           receiptDataUrl,
           receiptFileName,
           paymentMethod,
@@ -801,6 +835,10 @@ export default function CustomerStore({
       return;
     }
 
+    if (isApplicationSubmitting) return;
+
+    setApplicationError('');
+    setIsApplicationSubmitting(true);
     try {
       await onApplyDealer({
         name: appShopName.trim(),
@@ -814,14 +852,28 @@ export default function CustomerStore({
         status: 'pending'
       }, appPassword);
       setIsApplicationSuccess(true);
-    } catch {
-      alert('Bayi başvurusu kaydedilemedi. Lütfen internet bağlantınızı kontrol edip tekrar deneyin.');
+    } catch (error: any) {
+      // Cloud Functions HttpsError handling
+      const errorCode = error?.code || error?.details?.code || '';
+      const errorMessage = error?.message || '';
+      const isConflict = errorCode === 'already-exists' || errorCode === '409' || errorCode === 'aborted' ||
+        errorMessage.includes('already exists') || errorMessage.includes('already-exists') ||
+        errorMessage.includes('409') || errorMessage.includes('zaten bir bayi hesabı');
+
+      setApplicationError(isConflict
+        ? 'Bu e-posta adresiyle zaten bir bayi hesabı veya başvurusu bulunuyor. Farklı bir e-posta adresi deneyin.'
+        : 'Bayi başvurusu kaydedilemedi. Lütfen internet bağlantınızı kontrol edip tekrar deneyin.');
+      console.error('Bayi başvuru hatası:', error);
+    } finally {
+      setIsApplicationSubmitting(false);
     }
   };
 
   const handleCloseApplication = () => {
     setIsApplicationModalOpen(false);
     setIsApplicationSuccess(false);
+    setIsApplicationSubmitting(false);
+    setApplicationError('');
     setAppShopName('');
     setAppOwnerName('');
     setAppSector('Kırtasiye');
@@ -850,6 +902,7 @@ export default function CustomerStore({
     setReceiptDataUrl('');
     setReceiptFileName('');
     setHasAcceptedCheckoutTerms(false);
+    setHasAcceptedCheckoutKvkk(false);
     setPaymentError('');
   };
 
@@ -1085,11 +1138,11 @@ Bizleri tercih ettiğiniz için teşekkür ederiz!
         )}
       </div>
       {accountOpen && <div id="member-account-panel" className="bg-white border border-amber-200 rounded-2xl p-5 shadow-sm space-y-3 max-w-md ml-auto">
-        {currentMember ? <><p className="text-sm font-bold text-slate-800">{currentMember.name}</p><p className="text-xs text-slate-500">{currentMember.email}</p><button onClick={onMemberLogout} className="text-xs font-bold text-rose-600 cursor-pointer">Çıkış Yap</button></> : <form onSubmit={async e => { e.preventDefault(); const ok = accountMode === 'login' ? await onMemberLogin(accountEmail, accountPassword) : await onMemberRegister(accountName, accountEmail, accountPassword, accountPhone, hasAcceptedMembershipTerms ? [{ documentId: 'membership', version: LEGAL_DOCUMENT_VERSION, acceptedAt: new Date().toISOString() }, { documentId: 'kvkk', version: LEGAL_DOCUMENT_VERSION, acceptedAt: new Date().toISOString() }] : []); if (ok) setAccountOpen(false); }} className="space-y-2">
-          {accountMode === 'register' && <><input required value={accountName} onChange={e => setAccountName(e.target.value)} placeholder="Ad Soyad" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs" /><input value={accountPhone} onChange={e => setAccountPhone(e.target.value)} placeholder="Telefon" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs" /><label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-600 cursor-pointer"><input type="checkbox" checked={hasAcceptedMembershipTerms} onChange={e => setHasAcceptedMembershipTerms(e.target.checked)} className="mt-0.5 shrink-0 accent-amber-500" /><span><button type="button" onClick={() => setActiveLegalDocument('membership')} className="font-bold text-amber-700 underline cursor-pointer">Üyelik Sözleşmesi&apos;ni</button> ve <button type="button" onClick={() => setActiveLegalDocument('kvkk')} className="font-bold text-amber-700 underline cursor-pointer">KVKK Aydınlatma Metni&apos;ni</button> okudum, kabul ediyorum.</span></label></>}
+        {currentMember && !isAccountSubmitting ? <><p className="text-sm font-bold text-slate-800">{currentMember.name}</p><p className="text-xs text-slate-500">{currentMember.email}</p><button onClick={onMemberLogout} className="text-xs font-bold text-rose-600 cursor-pointer">Çıkış Yap</button></> : <form onSubmit={async e => { e.preventDefault(); setIsAccountSubmitting(true); setAccountOpen(false); try { const ok = accountMode === 'login' ? await onMemberLogin(accountEmail, accountPassword) : await onMemberRegister(accountName, accountEmail, accountPassword, accountPhone, hasAcceptedMembershipTerms ? [{ documentId: 'membership', version: LEGAL_DOCUMENT_VERSION, acceptedAt: new Date().toISOString() }, { documentId: 'kvkk', version: LEGAL_DOCUMENT_VERSION, acceptedAt: new Date().toISOString() }] : []); if (!ok) setAccountOpen(true); } finally { setIsAccountSubmitting(false); } }} className="space-y-2">
+          {accountMode === 'register' && <><input required value={accountName} onChange={e => setAccountName(e.target.value)} placeholder="Ad Soyad" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs" /><input value={accountPhone} onChange={e => setAccountPhone(e.target.value)} placeholder="Telefon" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs" /><div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-600"><input type="checkbox" checked={hasAcceptedMembershipTerms} onChange={e => setHasAcceptedMembershipTerms(e.target.checked)} className="mt-0.5 shrink-0 accent-amber-500" /><span><button type="button" onClick={() => setActiveLegalDocument('membership')} className="font-bold text-amber-700 underline cursor-pointer">Üyelik Sözleşmesi&apos;ni</button> ve <button type="button" onClick={() => setActiveLegalDocument('kvkk')} className="font-bold text-amber-700 underline cursor-pointer">KVKK Aydınlatma Metni&apos;ni</button> okudum, kabul ediyorum.</span></div></>}
           <input required type="email" value={accountEmail} onChange={e => setAccountEmail(e.target.value)} placeholder="E-posta" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs" />
           <input required type="password" value={accountPassword} onChange={e => setAccountPassword(e.target.value)} placeholder="Şifre" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs" />
-          <button disabled={accountMode === 'register' && !hasAcceptedMembershipTerms} className="w-full bg-slate-900 text-white rounded-lg py-2 text-xs font-bold cursor-pointer disabled:cursor-not-allowed disabled:opacity-50">{accountMode === 'login' ? 'Giriş Yap' : 'Üye Ol'}</button>
+          <button disabled={isAccountSubmitting || (accountMode === 'register' && !hasAcceptedMembershipTerms)} className="w-full bg-slate-900 text-white rounded-lg py-2 text-xs font-bold cursor-pointer disabled:cursor-not-allowed disabled:opacity-50">{isAccountSubmitting ? 'İşleniyor...' : accountMode === 'login' ? 'Giriş Yap' : 'Üye Ol'}</button>
           {accountMode === 'login' && <button type="button" onClick={() => onForgotPassword(accountEmail)} className="text-[11px] text-slate-500 hover:text-amber-700 font-bold cursor-pointer">Şifremi unuttum</button>}
           <button type="button" onClick={() => setAccountMode(accountMode === 'login' ? 'register' : 'login')} className="text-[11px] text-amber-700 font-bold cursor-pointer">{accountMode === 'login' ? 'Yeni üyelik oluştur' : 'Zaten üyeyim, giriş yap'}</button>
         </form>}
@@ -1388,8 +1441,10 @@ Bizleri tercih ettiğiniz için teşekkür ederiz!
                     {privateStoreTab === 'special' ? '🏪 Esnafın Kendi Özel Ürünleri' : '📦 Platform Ortak Ürünleri'}
                   </h4>
                   <p className="text-[11px] text-slate-500">
-                    {privateStoreTab === 'special' 
-                      ? 'Bu dükkan sahibinin kendi fiziksel stoğundan eklediği ve yönettiği ürünler.' 
+                    {privateStoreTab === 'special'
+                      ? (isReferralLocked
+                        ? 'Bu bayinin kendi fiziksel stoğundan eklediği ve yönettiği ürünler.'
+                        : '⚠️ Özel ürünler sadece esnafın kendi paylaşım linki (QR/Kod) ile erişilebilir. Linki esnaftan isteyiniz.')
                       : 'Merkez depomuzdaki ortak ürünler. Siparişiniz yine bu esnaf tarafından sevk edilir.'}
                   </p>
                 </div>
@@ -1397,13 +1452,20 @@ Bizleri tercih ettiğiniz için teşekkür ederiz!
                 <div className="flex p-1 bg-slate-100 rounded-xl w-full sm:w-auto self-stretch sm:self-auto shrink-0">
                   <button
                     onClick={() => {
+                      if (!isReferralLocked) {
+                        alert('Özel ürünler sadece esnafın kendi paylaşım linki (QR/Kod) ile erişilebilir. Linki esnaftan isteyiniz.');
+                        return;
+                      }
                       setPrivateStoreTab('special');
                       setSelectedCategory('All');
                     }}
+                    disabled={!isReferralLocked}
                     className={`flex-1 sm:flex-none py-1.5 px-3.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                      privateStoreTab === 'special'
-                        ? 'bg-white text-slate-900 shadow-xs'
-                        : 'text-slate-500 hover:text-slate-800'
+                      !isReferralLocked
+                        ? 'opacity-50 cursor-not-allowed'
+                        : privateStoreTab === 'special'
+                          ? 'bg-white text-slate-900 shadow-xs'
+                          : 'text-slate-500 hover:text-slate-800'
                     }`}
                   >
                     <Award className="w-3.5 h-3.5 text-amber-500" />
@@ -1861,176 +1923,54 @@ Bizleri tercih ettiğiniz için teşekkür ederiz!
       )}
 
 
-      {storeSettings?.footerEnabled !== false && (
-        <footer className="store-footer" id="store-footer">
-          <div className="store-footer__content">
-            <div className="store-footer__intro">
-              <span className="store-footer__eyebrow">BUĞURCA KIRTASİYE</span>
-              <h3 className="store-footer__title">{storeSettings?.footerTitle || 'Esnafın dijital adresi'}</h3>
-              <p className="store-footer__description">{storeSettings?.footerDescription || 'Yerel kırtasiye esnafını ve müşterileri güvenli bir alışveriş deneyiminde buluşturuyoruz.'}</p>
+      <footer className="store-footer" id="store-footer">
+        <div className="store-footer__content">
+          <section className="store-footer__intro">
+            <span className="store-footer__eyebrow">BUĞURCA KIRTASİYE</span>
+            <h3 className="store-footer__title">Buğurca Kırtasiye</h3>
+            <p className="store-footer__company">EFEKTİF TEKNOLOJİ İÇ VE DIŞ TİCARET LİMİTED ŞİRKETİ</p>
+            <p className="store-footer__description">Yerel kırtasiye esnaflarını teknolojiyle buluşturan, adil komisyon ve şeffaf hakediş altyapısıyla esnafı destekleyen e-ticaret ve bayi yönetim sistemi.</p>
+            <div className="store-footer__trust-list" aria-label="Güvenlik bilgileri">
+              <span>256-Bit SSL Koruması</span>
+              <span>3D Secure Güvenli Ödeme</span>
             </div>
+          </section>
 
-            <div className="store-footer__columns">
-              {storeSettings?.footerShowAbout !== false && (
-                <div>
-                  <h4 className="store-footer__heading">Hakkımızda</h4>
-                  <nav className="store-footer__links" aria-label="Hakkımızda bağlantıları">
-                    {footerAboutLinks.map(link => (
-                      link.id === 'about' || link.id === 'news' ? (
-                        <button key={link.id} type="button" onClick={() => setFooterOpenDetails(footerOpenDetails === link.id ? null : (link.id as 'about' | 'news'))} className="store-footer__shortcut-button" aria-expanded={footerOpenDetails === link.id}>{link.label}</button>
-                      ) : (
-                        <a key={link.id} href={link.href}>{link.label}</a>
-                      )
-                    ))}
-                  </nav>
-                </div>
-              )}
-              {storeSettings?.footerShowShortcuts !== false && (
-                <div>
-                  <h4 className="store-footer__heading">Kısa Yollar</h4>
-                  <nav className="store-footer__links" aria-label="Kısa yol bağlantıları">
-                    {!currentMember && (
-                      <>
-                        <button type="button" onClick={() => openAccountPanel('login')} className="store-footer__shortcut-button">
-                          Üye Girişi
-                        </button>
-                        <button type="button" onClick={() => openAccountPanel('register')} className="store-footer__shortcut-button">
-                          Kayıt Ol
-                        </button>
-                      </>
-                    )}
-                    {currentMember && (
-                      <button type="button" onClick={() => openAccountPanel('login')} className="store-footer__shortcut-button">
-                        Hesabım · {currentMember.name}
-                      </button>
-                    )}
-                    <button type="button" onClick={() => setActiveLegalDocument('membership')} className="store-footer__shortcut-button">
-                      Yasal Bilgiler
-                    </button>
-                    {footerShortcuts.map(shortcut => (
-                      ['contact', 'about', 'history', 'news'].includes(shortcut.id) || ['iletişim', 'biz kimiz?', 'tarihçemiz', 'duyurular'].includes(shortcut.label.trim().toLocaleLowerCase('tr-TR')) ? (
-                        <button
-                          key={shortcut.id}
-                          type="button"
-                          onClick={() => setFooterOpenDetails(footerOpenDetails === shortcut.id ? null : (shortcut.id as 'contact' | 'about' | 'history' | 'news'))}
-                          className="store-footer__shortcut-button"
-                          aria-expanded={footerOpenDetails === shortcut.id}
-                        >
-                          {shortcut.label}
-                        </button>
-                      ) : (
-                        <a key={shortcut.id} href={shortcut.href}>{shortcut.label}</a>
-                      )
-                    ))}
-                    {footerOpenDetails === 'contact' && (
-                      <div className="store-footer__shortcut-details">
-                        <p><strong>Adres:</strong> {businessAddress}</p>
-                        <p><strong>Telefon:</strong> {storeSettings?.contactPhone || '+90 (212) 555 43 21'}</p>
-                        <p><strong>E-posta:</strong> {storeSettings?.contactEmail || 'iletisim@bugurcakirtasiye.com'}</p>
-                        <p><strong>Saatler:</strong> {storeSettings?.contactWorkingHours || 'Hafta İçi: 09:00 - 19:00 | Hafta Sonu: 10:00 - 17:00'}</p>
-                      </div>
-                    )}
-                    {footerOpenDetails === 'about' && (
-                      <div id="about-details" className="store-footer__shortcut-details">
-                        <p className="font-bold">{storeSettings?.aboutTitle || 'Biz Kimiz & Tarihçemiz'}</p>
-                        <p>{storeSettings?.aboutText || 'Buğurca Kırtasiye, kurulduğu günden beri geleneksel mahalle kırtasiyeciliğini yaşatma vizyonuyla hareket etmektedir.'}</p>
-                      </div>
-                    )}
-                    {footerOpenDetails === 'history' && (
-                      <div id="history-details" className="store-footer__shortcut-details">
-                        <p className="font-bold">Tarihçemiz & Sosyal Misyonumuz</p>
-                        <p>{storeSettings?.aboutHistory || '1994 yılında küçük bir dükkanla başlayan hikayemiz, bugün hibrit bir e-ticaret platformuna dönüştü.'}</p>
-                      </div>
-                    )}
-                    {footerOpenDetails === 'news' && (
-                      <div id="news-details" className="store-footer__shortcut-details store-footer__news-details">
-                        <p className="font-bold">GÜNCEL GELİŞMELER</p>
-                        <p className="font-bold">{storeName}'den Haberler & Duyurular</p>
-                        {storeSettings?.newsList?.length ? storeSettings.newsList.map(news => (
-                          <article key={news.id} className="store-footer__news-item">
-                            <span>{news.emoji}</span>
-                            <div><strong>{news.title}</strong><small>{news.date}</small><p>{news.content}</p></div>
-                          </article>
-                        )) : <p>Henüz duyuru bulunmuyor.</p>}
-                      </div>
-                    )}
-                  </nav>
-                </div>
-              )}
-              {storeSettings?.footerShowContact !== false && (
-                <div>
-                  <h4 className="store-footer__heading">İletişim</h4>
-                  <div className="store-footer__contact">
-                    <a href={`tel:${storeSettings?.contactPhone || '+902125554321'}`}>
-                      <Phone className="w-3.5 h-3.5" />
-                      {storeSettings?.contactPhone || '+90 (212) 555 43 21'}
-                    </a>
-                    <a href={`mailto:${storeSettings?.contactEmail || 'iletisim@bugurcakirtasiye.com'}`}>
-                      <Mail className="w-3.5 h-3.5" />
-                      {storeSettings?.contactEmail || 'iletisim@bugurcakirtasiye.com'}
-                    </a>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {storeSettings?.footerMapEnabled !== false && (
-              <div className="store-footer__map-card">
-                <div className="store-footer__map-heading">
-                  <div className="store-footer__location-title">
-                    <span className="store-footer__location-icon"><MapPin className="w-4 h-4" /></span>
-                    <div>
-                      <span className="store-footer__eyebrow">{storeSettings?.footerLocationEyebrow || 'Bizi ziyaret edin'}</span>
-                      <h4 className="store-footer__map-title">{storeSettings?.footerLocationTitle || 'Konumumuz'}</h4>
-                      <p className="store-footer__address">{businessAddress}</p>
-                    </div>
-                  </div>
-                  <div className="store-footer__map-actions">
-                    <a
-                      href={directionsUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label={`${mapDestination} için Google Haritalar yol tarifi aç`}
-                      className="store-footer__map-link"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" /> {storeSettings?.footerDirectionsLabel || 'Yol Tarifi Al'}
-                    </a>
-                    <a
-                      href={locationMapUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label="Kesin konumu Google Haritalar'da aç"
-                      className="store-footer__map-link store-footer__map-link--secondary"
-                    >
-                      <MapPin className="w-3.5 h-3.5" /> {storeSettings?.footerMapLabel || 'Konumu Aç'}
-                    </a>
-                  </div>
-                </div>
-                <div className="store-footer__location-details">
-                  <div><Clock className="w-3.5 h-3.5" /><span><strong>Açık olduğumuz saatler</strong>{storeSettings?.contactWorkingHours || 'Hafta içi 09:00 - 19:00'}</span></div>
-                  <a href={`tel:${storeSettings?.contactPhone || '+902125554321'}`}><Phone className="w-3.5 h-3.5" /><span><strong>Bizi arayın</strong>{storeSettings?.contactPhone || '+90 (212) 555 43 21'}</span></a>
-                  <a href={`mailto:${storeSettings?.contactEmail || 'iletisim@bugurcakirtasiye.com'}`}><Mail className="w-3.5 h-3.5" /><span><strong>Hızlı iletişim</strong>{storeSettings?.contactEmail || 'iletisim@bugurcakirtasiye.com'}</span></a>
-                </div>
-                <div className="store-footer__map-frame">
-                  <iframe
-                    title={`${mapDestination} konum haritası`}
-                    src={`https://www.google.com/maps?q=${encodeURIComponent(locationCoordinates)}&z=17&output=embed`}
-                    loading="lazy"
-                    referrerPolicy="no-referrer-when-downgrade"
-                  />
-                  <div className="store-footer__map-badge">
-                    <Globe2 className="w-3.5 h-3.5" /> {storeSettings?.footerMapLabel || 'Haritayı incele'}
-                  </div>
-                </div>
+          <div className="store-footer__columns">
+            <section>
+              <h4 className="store-footer__heading">Mevzuat ve Sözleşmeler</h4>
+              <nav className="store-footer__links" aria-label="Mevzuat ve sözleşmeler">
+                <a href="/mesafeli-satis-sozlesmesi">Mesafeli Satış Sözleşmesi</a>
+                <a href="/on-bilgilendirme-formu">Ön Bilgilendirme Formu</a>
+                <a href="/iptal-iade-kosullari">İptal ve İade Koşulları</a>
+                <a href="/kvkk-aydinlatma-metni">KVKK Aydınlatma Metni</a>
+                <a href="/kargo-teslimat-kosullari">Kargo ve Teslimat Koşulları</a>
+              </nav>
+            </section>
+            <section>
+              <h4 className="store-footer__heading">Müşteri Hizmetleri</h4>
+              <div className="store-footer__contact">
+                <a href="tel:+905072497646"><Phone className="w-3.5 h-3.5" /> Müşteri Destek: 0507 249 76 46</a>
+                <a href="mailto:bugurcagroup@gmail.com"><Mail className="w-3.5 h-3.5" /> E-Posta: bugurcagroup@gmail.com</a>
+                <span>Çalışma Saatleri: Hafta içi 08:30 - 18:30 | Cumartesi 09:00 - 15:00</span>
               </div>
-            )}
+            </section>
+            <section>
+              <h4 className="store-footer__heading">Ödeme Yöntemleri</h4>
+              <div className="store-footer__payment-list" aria-label="Ödeme yöntemleri">
+                <span>TROY</span><span>VISA</span><span>MASTERCARD</span><span>MAESTRO</span>
+              </div>
+            </section>
           </div>
-          <div className="store-footer__bottom">
-            <span>{storeName} © 2026</span>
-            <span>Yerli Esnaf Can Suyu Modeli</span>
-          </div>
-        </footer>
-      )}
+
+          <section className="store-footer__company-info">
+            <h4>Buğurca Kırtasiye</h4>
+            <p><strong>EFEKTİF TEKNOLOJİ İÇ VE DIŞ TİCARET LİMİTED ŞİRKETİ</strong></p>
+            <p>Adres: Yusufpaşa Mah. 886 Sk. Dünya İş Merkezi No: 15/C Eyyübiye / ŞANLIURFA | Tel: <a href="tel:+905072497646">0507 249 76 46</a> | E-posta: <a href="mailto:bugurcagroup@gmail.com">bugurcagroup@gmail.com</a></p>
+            <p>Vergi No: Topçumeydanı V.D. / 141 067 9904 | Tic. Sicil No: 23529 | Mersis No: 0141067990400001</p>
+          </section>
+        </div>
+      </footer>
 
       {/* Cart Drawer Overlay */}
       {isCartOpen && (
@@ -2557,17 +2497,20 @@ Bizleri tercih ettiğiniz için teşekkür ederiz!
                   </p>
                 </div>
 
-                <label className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-600 cursor-pointer">
+                <div className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-600">
                   <input type="checkbox" checked={hasAcceptedCheckoutTerms} onChange={e => setHasAcceptedCheckoutTerms(e.target.checked)} className="mt-0.5 shrink-0 accent-amber-500" />
                   <span><button type="button" onClick={() => setActiveLegalDocument('distance-sales')} className="font-bold text-amber-700 underline cursor-pointer">Mesafeli Satış Sözleşmesi&apos;ni</button> ve <button type="button" onClick={() => setActiveLegalDocument('pre-information')} className="font-bold text-amber-700 underline cursor-pointer">Ön Bilgilendirme Formu&apos;nu</button> okudum, onaylıyorum.</span>
-                </label>
-<label className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-600 cursor-pointer"><input type="checkbox" checked={hasAcceptedCheckoutKvkk} onChange={e => setHasAcceptedCheckoutKvkk(e.target.checked)} className="mt-0.5 shrink-0 accent-amber-500" /><span><button type="button" onClick={() => setActiveLegalDocument('kvkk')} className="font-bold text-amber-700 underline cursor-pointer">KVKK Aydınlatma Metni&apos;ni</button> okudum, kabul ediyorum.</span></label>
+                </div>
+                <div className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-600">
+                  <input type="checkbox" checked={hasAcceptedCheckoutKvkk} onChange={e => setHasAcceptedCheckoutKvkk(e.target.checked)} className="mt-0.5 shrink-0 accent-amber-500" />
+                  <span><button type="button" onClick={() => setActiveLegalDocument('kvkk')} className="font-bold text-amber-700 underline cursor-pointer">KVKK Aydınlatma Metni&apos;ni</button> okudum, kabul ediyorum.</span>
+                </div>
 
                 <div className="pt-3">
                   <button
                     id="submit-payment-btn"
                     type="submit"
-                    disabled={isProcessingPayment || !hasAcceptedCheckoutTerms && hasAcceptedCheckoutKvkk}
+                    disabled={isProcessingPayment || !hasAcceptedCheckoutTerms || !hasAcceptedCheckoutKvkk}
                     className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-all text-xs flex items-center justify-center gap-2 cursor-pointer shadow-xs disabled:bg-slate-400 disabled:cursor-not-allowed"
                   >
                     {isProcessingPayment ? (
@@ -2790,14 +2733,21 @@ Bizleri tercih ettiğiniz için teşekkür ederiz!
                   <strong>Hakediş Bilgilendirmesi:</strong> Başvurunuz yönetici (admin) panelindeki onay kuyruğuna düşecektir. Onaylandıktan sonra sistemde aktifleşecek, müşterileriniz sizi seçerek alışveriş yapabilecek ve her alışverişte belirlenen komisyon tutarı anında hakediş bakiyenize yansıyacaktır.
                 </div>
 
+                {applicationError && (
+                  <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-[11px] text-rose-800" role="alert">
+                    {applicationError}
+                  </div>
+                )}
+
                 <div className="pt-2">
                   <button
                     id="submit-application-btn"
                     type="submit"
-                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl transition-all text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                    disabled={isApplicationSubmitting}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl transition-all text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md"
                   >
                     <CheckCircle2 className="w-4 h-4 text-emerald-100" />
-                    Başvuruyu Tamamla ve Gönder
+                    {isApplicationSubmitting ? 'Başvuru gönderiliyor...' : 'Başvuruyu Tamamla ve Gönder'}
                   </button>
                 </div>
               </form>
@@ -3230,6 +3180,9 @@ Bizleri tercih ettiğiniz için teşekkür ederiz!
         onClose={() => setSelectedOrderDetail(null)}
         order={selectedOrderDetail}
         products={products}
+        dealers={dealers}
+        commissionRate={commissionRate}
+        viewerRole="customer"
       />
     </div>
   );

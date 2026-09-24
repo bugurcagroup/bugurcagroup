@@ -1,16 +1,30 @@
 import React, { useState } from 'react';
 import { X, ShoppingBag, User, MapPin, Truck, Calendar, CreditCard, Coins, Copy, Check, FileText } from 'lucide-react';
-import { Order, Product } from '../types';
+import { Dealer, Order, Product } from '../types';
 import { copyTextToClipboard } from '../lib/browser';
+import { getOrderItemShippingCompany, getOrderItemShippingStatus, getOrderItemTrackingNumber, getOrderShippingStatus } from '../lib/orderShipping';
 
 interface OrderDetailsModalProps {
   isOpen: boolean;
   onClose: () => void;
   order: Order | null;
   products?: Product[];
+  dealers?: Dealer[];
+  commissionRate?: number;
+  viewerRole?: 'customer' | 'dealer' | 'admin';
+  viewerDealerId?: string;
 }
 
-export default function OrderDetailsModal({ isOpen, onClose, order, products = [] }: OrderDetailsModalProps) {
+export default function OrderDetailsModal({
+  isOpen,
+  onClose,
+  order,
+  products = [],
+  dealers = [],
+  commissionRate = 0,
+  viewerRole = 'customer',
+  viewerDealerId,
+}: OrderDetailsModalProps) {
   const [copiedText, setCopiedText] = useState<string | null>(null);
 
   if (!isOpen || !order) return null;
@@ -72,11 +86,58 @@ export default function OrderDetailsModal({ isOpen, onClose, order, products = [
     return found?.category || '';
   };
 
-  const dealerCommission = order.commissionAmount !== undefined
-    ? Number(order.commissionAmount)
-    : order.adminCommissionAmount !== undefined
-      ? Math.max(0, Number(order.totalPrice) - Number(order.adminCommissionAmount))
-      : 0;
+  const orderDealer = dealers.find(dealer => dealer.id === order.dealerId);
+  const centralTotal = order.items.reduce((total, item) => {
+    const product = products.find(candidate => candidate.id === item.productId);
+    const isDealerProduct = item.source === 'dealer' || Boolean(item.dealerId) || Boolean(product?.dealerId);
+    return isDealerProduct ? total : total + item.price * item.quantity;
+  }, 0);
+  const dealerCommission = order.dealerCommissionAmount !== undefined
+    ? Number(order.dealerCommissionAmount)
+    : orderDealer
+      ? Number((centralTotal * (orderDealer.commissionRate ?? commissionRate) / 100).toFixed(2))
+      : Number(order.commissionAmount ?? 0);
+  const adminCommission = order.adminCommissionAmount !== undefined
+    ? Number(order.adminCommissionAmount)
+    : orderDealer
+      ? Number(Math.max(0, centralTotal - dealerCommission).toFixed(2))
+      : Number(order.adminCommissionAmount ?? 0);
+  const displayedShippingStatus = getOrderShippingStatus(
+    order,
+    viewerRole === 'dealer' ? viewerDealerId : order.dealerId,
+  );
+
+  const getItemDealerId = (item: Order['items'][number]) => {
+    const productDealerId = products.find(product => product.id === item.productId)?.dealerId;
+    return item.dealerId || productDealerId || (item.source === 'dealer' ? 'unknown' : undefined);
+  };
+
+  const visibleItems = viewerRole === 'dealer'
+    ? order.items.filter(item => getItemDealerId(item) === viewerDealerId || (!getItemDealerId(item) && order.dealerId === viewerDealerId))
+    : order.items;
+  const centralItems = order.items.filter(item => !getItemDealerId(item));
+  const dealerItemGroups = new Map<string, Order['items']>();
+  order.items.forEach(item => {
+    const dealerId = getItemDealerId(item);
+    if (!dealerId) return;
+    dealerItemGroups.set(dealerId, [...(dealerItemGroups.get(dealerId) || []), item]);
+  });
+  const itemSections = viewerRole === 'admin'
+    ? [
+      ...Array.from(dealerItemGroups.entries()).map(([dealerId, items]) => ({
+        key: `dealer-${dealerId}`,
+        title: `Bayi Ürünleri - ${dealers.find(dealer => dealer.id === dealerId)?.name || `Bayi ID: ${dealerId}`}`,
+        items,
+      })),
+      ...(centralItems.length > 0 ? [{ key: 'central', title: 'Merkez Platform Ürünleri', items: centralItems }] : []),
+    ]
+    : [{
+      key: viewerRole === 'dealer' ? 'dealer-items' : 'all-items',
+      title: viewerRole === 'dealer' ? 'Bayinin Seçilen Ürünleri' : 'Alınan Ürünler',
+      items: visibleItems,
+    }];
+  const displayedItemsTotal = visibleItems.reduce((total, item) => total + item.price * item.quantity, 0);
+  const displayedOrderTotal = Number(order.totalPrice ?? 0);
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto" id="global-order-details-modal">
@@ -133,7 +194,7 @@ export default function OrderDetailsModal({ isOpen, onClose, order, products = [
               <Truck className="w-4 h-4 text-slate-400" />
               <div className="text-xs">
                 <span className="text-slate-400 block font-bold uppercase tracking-wider text-[9px]">Kargo Sevk Durumu</span>
-                <div className="mt-0.5">{getShippingStatusBadge(order.shippingStatus)}</div>
+                <div className="mt-0.5">{getShippingStatusBadge(displayedShippingStatus)}</div>
               </div>
             </div>
             <div className="flex items-center gap-2.5">
@@ -283,59 +344,90 @@ export default function OrderDetailsModal({ isOpen, onClose, order, products = [
             </div>
           </div>
 
-          {/* Purchased Products List */}
-          <div className="space-y-3">
+          <div className="space-y-5">
             <h4 className="font-display font-extrabold text-xs text-slate-900 uppercase tracking-wider flex items-center gap-2 border-b border-slate-100 pb-2">
-              <ShoppingBag className="w-4.5 h-4.5 text-amber-500" /> Alınan Ürün Listesi ({order.items.length} Kalem)
+              <ShoppingBag className="w-4.5 h-4.5 text-amber-500" /> Sipariş Ürünleri ({visibleItems.length} Kalem)
             </h4>
-            <div className="border border-slate-150 rounded-2xl overflow-hidden bg-white">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-150">
-                    <th className="p-3">Görsel</th>
-                    <th className="p-3">Ürün Detayı</th>
-                    <th className="p-3 text-center">Miktar</th>
-                    <th className="p-3 text-right">Birim Fiyat</th>
-                    <th className="p-3 text-right">Toplam Tutar</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
-                  {order.items.map((item, idx) => (
-                    <tr key={`${item.productId}-${idx}`} className="hover:bg-slate-50/50">
-                      <td className="p-3 w-16">
-                        <div className="h-10 w-10 bg-slate-50 rounded-lg overflow-hidden border border-slate-150 flex items-center justify-center p-1">
-                          <img
-                            src={getProductImage(item.productId)}
-                            alt={item.name}
-                            referrerPolicy="no-referrer"
-                            className="max-h-full max-w-full object-contain"
-                          />
-                        </div>
-                      </td>
-                      <td className="p-3">
-                        <span className="font-bold text-slate-800 block">{item.name}</span>
-                        <div className="flex gap-2 text-[9px] mt-0.5 text-slate-400 font-semibold uppercase">
-                          {getProductBrand(item.productId) && <span>Marka: {getProductBrand(item.productId)}</span>}
-                          {getProductCategory(item.productId) && <span>Kategori: {getProductCategory(item.productId)}</span>}
-                          {item.dealerId && <span>Bayi ID: {item.dealerId}</span>}
-                          {item.storeId && <span>Mağaza: {item.storeId}</span>}
-                        </div>
-                      </td>
-                      <td className="p-3 text-center font-mono font-bold text-slate-700">
-                        <div>x{item.quantity} {item.saleUnit === 'box' ? 'Koli' : item.saleUnit === 'dozen' ? 'Düzine' : 'Adet'}{item.unitQuantity && item.unitQuantity > 1 ? ` (${item.unitQuantity} adet)` : ''}</div>
-                        {item.source && (
-                          <span className={`text-[8px] font-extrabold px-1.5 py-0.5 rounded uppercase mt-0.5 inline-block ${item.source === 'dealer' ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'}`}>
-                            {item.source === 'dealer' ? 'Bayi Ürünü' : 'Merkez Ürünü'}
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-3 text-right font-mono text-slate-500">{item.price.toFixed(2)} TL</td>
-                      <td className="p-3 text-right font-mono font-bold text-slate-900">{(item.price * item.quantity).toFixed(2)} TL</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            {itemSections.map(section => (
+              <div key={section.key} className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <h5 className="text-[11px] font-extrabold uppercase tracking-wide text-slate-700">{section.title}</h5>
+                  <span className="text-[10px] font-bold text-slate-400">
+                    {section.items.length} Kalem · {section.items.reduce((total, item) => total + item.price * item.quantity, 0).toFixed(2)} TL
+                  </span>
+                </div>
+                <div className="border border-slate-150 rounded-2xl overflow-hidden bg-white">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-150">
+                        <th className="p-3">Görsel</th>
+                        <th className="p-3">Ürün Detayı</th>
+                        <th className="p-3 text-center">Miktar</th>
+                        <th className="p-3 text-right">Birim Fiyat</th>
+                        <th className="p-3 text-right">Toplam Tutar</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
+                      {section.items.map((item, idx) => {
+                        const shippingIndex = order.items.indexOf(item);
+                        const itemShippingStatus = getOrderItemShippingStatus(order, shippingIndex);
+                        const itemShippingCompany = getOrderItemShippingCompany(order, shippingIndex);
+                        const itemTrackingNumber = getOrderItemTrackingNumber(order, shippingIndex);
+                        return (
+                        <tr key={`${section.key}-${item.productId}-${idx}`} className="hover:bg-slate-50/50">
+                          <td className="p-3 w-16">
+                            <div className="h-10 w-10 bg-slate-50 rounded-lg overflow-hidden border border-slate-150 flex items-center justify-center p-1">
+                              <img
+                                src={getProductImage(item.productId)}
+                                alt={item.name}
+                                referrerPolicy="no-referrer"
+                                className="max-h-full max-w-full object-contain"
+                              />
+                            </div>
+                          </td>
+                          <td className="p-3">
+                            <span className="font-bold text-slate-800 block">{item.name}</span>
+                            <div className="flex gap-2 text-[9px] mt-0.5 text-slate-400 font-semibold uppercase">
+                              {getProductBrand(item.productId) && <span>Marka: {getProductBrand(item.productId)}</span>}
+                              {getProductCategory(item.productId) && <span>Kategori: {getProductCategory(item.productId)}</span>}
+                              {getItemDealerId(item) && <span>Bayi ID: {getItemDealerId(item)}</span>}
+                              {item.storeId && <span>Mağaza: {item.storeId}</span>}
+                            </div>
+                          </td>
+                          <td className="p-3 text-center font-mono font-bold text-slate-700">
+                            <div>x{item.quantity} {item.saleUnit === 'box' ? 'Koli' : item.saleUnit === 'dozen' ? 'Düzine' : 'Adet'}{item.unitQuantity && item.unitQuantity > 1 ? ` (${item.unitQuantity} adet)` : ''}</div>
+                            <span className={`text-[8px] font-extrabold px-1.5 py-0.5 rounded uppercase mt-0.5 inline-block ${getItemDealerId(item) ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'}`}>
+                              {getItemDealerId(item) ? 'Bayi Ürünü' : 'Merkez Ürünü'}
+                            </span>
+                            <span className={`text-[8px] font-extrabold px-1.5 py-0.5 rounded uppercase mt-0.5 ml-1 inline-block ${itemShippingStatus === 'delivered' ? 'bg-emerald-50 text-emerald-700' : itemShippingStatus === 'shipped' ? 'bg-blue-50 text-blue-700' : itemShippingStatus === 'cancelled' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}`}>
+                              {itemShippingStatus === 'delivered' ? 'Teslim Edildi' : itemShippingStatus === 'shipped' ? 'Kargoda' : itemShippingStatus === 'cancelled' ? 'İptal' : 'Hazırlanıyor'}
+                            </span>
+                            {itemShippingStatus === 'shipped' && (
+                              <span className="block text-[9px] text-slate-400 mt-1 normal-case">
+                                {itemShippingCompany}{itemTrackingNumber ? ` · ${itemTrackingNumber}` : ''}
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3 text-right font-mono text-slate-500">{item.price.toFixed(2)} TL</td>
+                          <td className="p-3 text-right font-mono font-bold text-slate-900">{(item.price * item.quantity).toFixed(2)} TL</td>
+                        </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+            {visibleItems.length === 0 && (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-center text-xs font-semibold text-amber-800">
+                Bu siparişte bu bayiye ait ürün bulunmuyor.
+              </div>
+            )}
+            {viewerRole === 'dealer' && (
+              <div className="flex justify-end rounded-xl bg-emerald-50 px-4 py-3 text-sm font-extrabold text-emerald-800">
+                Bayinin Seçilen Ürünleri Toplamı: {displayedItemsTotal.toFixed(2)} TL
+              </div>
+            )}
           </div>
 
           {/* Pricing & Commissions Financial Breakdown */}
@@ -363,7 +455,7 @@ export default function OrderDetailsModal({ isOpen, onClose, order, products = [
                     <span className="text-[9px] text-slate-400 font-semibold uppercase">Sektör Komisyonu</span>
                   </div>
                   <span className="font-mono font-bold text-sm text-indigo-300">
-                    +{((order.adminCommissionAmount !== undefined) ? order.adminCommissionAmount : (order.totalPrice * 0.03)).toFixed(2)} TL
+                    +{adminCommission.toFixed(2)} TL
                   </span>
                 </div>
               </div>
@@ -374,7 +466,7 @@ export default function OrderDetailsModal({ isOpen, onClose, order, products = [
               <div className="w-full space-y-1 text-slate-300 text-xs">
                 <div className="flex justify-between md:justify-end gap-6">
                   <span className="text-slate-400 font-bold">Ara Toplam:</span>
-                  <span className="font-mono font-semibold">{order.totalPrice.toFixed(2)} TL</span>
+                  <span className="font-mono font-semibold">{displayedOrderTotal.toFixed(2)} TL</span>
                 </div>
                 <div className="flex justify-between md:justify-end gap-6">
                   <span className="text-slate-400 font-bold">Sanal Kargo:</span>
@@ -384,7 +476,7 @@ export default function OrderDetailsModal({ isOpen, onClose, order, products = [
 
               <div className="w-full border-t border-white/10 pt-3 flex justify-between md:justify-end items-center gap-6">
                 <span className="text-amber-400 text-sm font-black uppercase tracking-wider">GENEL TOPLAM</span>
-                <span className="font-mono font-black text-2xl text-amber-400">{order.totalPrice.toFixed(2)} TL</span>
+                <span className="font-mono font-black text-2xl text-amber-400">{displayedOrderTotal.toFixed(2)} TL</span>
               </div>
             </div>
           </div>

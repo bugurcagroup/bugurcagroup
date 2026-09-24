@@ -5,7 +5,8 @@
 
 import React, { useState, useMemo } from 'react';
 import { Store, User, CreditCard, Coins, ShoppingBag, FileText, Settings, ArrowRight, CheckCircle2, AlertCircle, RefreshCw, Check, Plus, Clock, AlertTriangle, Trash2, Share2, Copy, Download, QrCode, FileImage, Share, Edit, Package, Truck, Trash, Eye, Smartphone } from 'lucide-react';
-import { Dealer, Order, Product, CommissionRequest } from '../types';
+import { Dealer, Order, Product, CommissionRequest, DealerTransaction, ShippingStatus } from '../types';
+import { getOrderItemShippingCompany, getOrderItemShippingStatus, getOrderItemTrackingNumber, getOrderShippingStatus } from '../lib/orderShipping';
 import QRCode from 'qrcode';
 import OrderDetailsModal from './OrderDetailsModal';
 import { uploadFile } from '../lib/storage';
@@ -21,8 +22,10 @@ interface DealerDashboardProps {
   activeSubTab: string; // 'dashboard', 'orders', 'products'
   setActiveSubTab: (tab: string) => void;
   commissionRate?: number;
+  defaultPrivateCommissionRate?: number;
   commissionRequests: CommissionRequest[];
-  onSendCommissionRequest: (request: Omit<CommissionRequest, 'id' | 'status' | 'date'>) => void;
+  dealerTransactions: DealerTransaction[];
+  onSendCommissionRequest: (request: Omit<CommissionRequest, 'id' | 'status' | 'date'>) => void | Promise<void>;
   selectedDealerId?: string;
   onSaveProduct?: (product: Product) => void;
   onSaveProductsBulk?: (products: Product[]) => void;
@@ -41,7 +44,9 @@ export default function DealerDashboard({
   activeSubTab,
   setActiveSubTab,
   commissionRate = 0,
+  defaultPrivateCommissionRate = 5,
   commissionRequests = [],
+  dealerTransactions = [],
   onSendCommissionRequest,
   selectedDealerId: propSelectedDealerId,
   onSaveProduct,
@@ -255,31 +260,7 @@ export default function DealerDashboard({
   const [withdrawAmount, setWithdrawAmount] = useState(0);
   const [iban, setIban] = useState(currentDealer?.iban || '');
   const [isWithdrawSuccess, setIsWithdrawSuccess] = useState(false);
-
-  // Bayi panelinde görünecek tüm siparişler:
-  // Müşterinin oluşturduğu siparişler (onay beklese de gösterilir — ödeme merkeze yapılmıştır)
-  // Admin/merkez kaynaklı siparişler (her zaman görünür)
-  // Yalnızca bayinin kendi oluşturduğu ve admin onayı bekleyenler ayrı sekmede
-  const dealerOrders = useMemo(() => {
-    if (!currentDealer) return [];
-    return orders.filter(o =>
-      o.dealerId === currentDealer.id &&
-      !(o.createdBy === 'dealer' && o.adminApproved === false)
-    );
-  }, [orders, currentDealer]);
-
-  // Bayinin Kendi Talebi Olan ve Onay Bekleyen Siparişler
-  const pendingDealerOrders = useMemo(() => {
-    if (!currentDealer) return [];
-    return orders.filter(o => o.dealerId === currentDealer.id && o.createdBy === 'dealer' && o.adminApproved === false);
-  }, [orders, currentDealer]);
-
-  const dealerTotalSales = useMemo(() => dealerOrders
-    .filter(order => order.status === 'completed' && order.adminApproved !== false)
-    .reduce((total, order) => total + Number(order.totalPrice ?? 0), 0), [dealerOrders]);
-  const dealerEarnedCommission = useMemo(() => dealerOrders
-    .filter(order => order.status === 'completed' && order.adminApproved !== false && !order.commissionVoided)
-    .reduce((total, order) => total + Number(order.commissionAmount ?? 0), 0), [dealerOrders]);
+  const [isWithdrawSubmitting, setIsWithdrawSubmitting] = useState(false);
 
   // Bayinin Kendi Komisyon Talepleri
   const myRequests = useMemo(() => {
@@ -288,23 +269,20 @@ export default function DealerDashboard({
   }, [commissionRequests, currentDealer]);
 
   const totalPaidCommissions = useMemo(() => {
-    return myRequests
-      .filter(r => r.status === 'approved')
-      .reduce((acc, r) => acc + Number(r.amount ?? 0), 0);
-  }, [myRequests]);
+    const approvedRequests = myRequests
+      .filter(request => request.status === 'approved')
+      .reduce((total, request) => total + Number(request.amount ?? 0), 0);
+    const directPayouts = dealerTransactions
+      .filter(transaction => transaction.type === 'payout')
+      .reduce((total, transaction) => total + Number(transaction.amount ?? 0), 0);
+    return approvedRequests + directPayouts;
+  }, [dealerTransactions, myRequests]);
 
   const pendingCommissionAmount = useMemo(() => {
     return myRequests
       .filter(r => r.status === 'pending')
       .reduce((acc, r) => acc + Number(r.amount ?? 0), 0);
   }, [myRequests]);
-
-  const withdrawableCommission = useMemo(() => {
-    return Math.max(
-      0,
-      dealerEarnedCommission - totalPaidCommissions - pendingCommissionAmount
-    );
-  }, [dealerEarnedCommission, totalPaidCommissions, pendingCommissionAmount]);
 
   // Yeni Sipariş Talebi Gönder State'leri
   const [isNewOrderModalOpen, setIsNewOrderModalOpen] = useState(false);
@@ -331,7 +309,7 @@ export default function DealerDashboard({
       return;
     }
 
-    const selectedProduct = products.find(p => p.id === selectedProductId);
+    const selectedProduct = dealerProducts.find(product => product.id === selectedProductId);
     if (!selectedProduct) {
       alert('Ürün bulunamadı.');
       return;
@@ -353,7 +331,11 @@ export default function DealerDashboard({
           productId: selectedProduct.id,
           name: `${selectedProduct.name} (${packageQuantity} ${pkgLabel})`,
           quantity: totalUnits,
-          price: selectedProduct.price
+          price: selectedProduct.price,
+          source: selectedProduct.dealerId ? 'dealer' : 'central',
+          dealerId: selectedProduct.dealerId,
+          isCentral: !selectedProduct.dealerId,
+          storeId: selectedProduct.dealerId ? undefined : 'central',
         }
       ],
       totalPrice: selectedProduct.price * totalUnits,
@@ -607,6 +589,75 @@ export default function DealerDashboard({
     return products.filter(p => p.dealerId === currentDealer.id);
   }, [products, currentDealer]);
 
+  const dealerProductIds = useMemo(() => new Set(dealerProducts.map(product => product.id)), [dealerProducts]);
+  const isDealerOrder = (order: Order) => order.dealerId === currentDealer?.id
+    && (order.orderRole !== 'master' || !order.subOrderIds?.length);
+  const getDealerOrderItems = (order: Order) => order.items.filter(item =>
+    item.source !== 'central'
+    && (
+      item.dealerId === currentDealer?.id
+      || dealerProductIds.has(item.productId)
+      || (item.source === 'dealer' && !item.dealerId && order.dealerId === currentDealer?.id)
+    ),
+  );
+  const getDealerOrderTotal = (order: Order) => getDealerOrderItems(order)
+    .reduce((total, item) => total + item.price * item.quantity, 0);
+  const getDealerOrderCentralTotal = (order: Order) => order.items.reduce((total, item) => {
+    const product = products.find(candidate => candidate.id === item.productId);
+    const isDealerProduct = item.source === 'dealer' || Boolean(item.dealerId) || Boolean(product?.dealerId);
+    return isDealerProduct ? total : total + item.price * item.quantity;
+  }, 0);
+  const getDealerOrderCommission = (order: Order) => {
+    const centralTotal = getDealerOrderCentralTotal(order);
+    return Number((centralTotal * (currentDealer?.commissionRate ?? commissionRate) / 100).toFixed(2));
+  };
+  const getDealerOrderAdminCommission = (order: Order) => Number(
+    Math.max(0, getDealerOrderCentralTotal(order) - getDealerOrderCommission(order)).toFixed(2),
+  );
+  const getDealerOrderView = (order: Order): Order => {
+    const commission = getDealerOrderCommission(order);
+    return {
+      ...order,
+      items: getDealerOrderItems(order),
+      totalPrice: Number(order.totalPrice ?? 0),
+      commissionAmount: commission,
+      dealerCommissionAmount: commission,
+      adminCommissionAmount: getDealerOrderAdminCommission(order),
+    };
+  };
+
+  const dealerCommissionOrders = useMemo(() => {
+    if (!currentDealer) return [];
+    return orders.filter(order =>
+      isDealerOrder(order)
+      && order.createdBy !== 'dealer'
+      && order.status === 'completed'
+      && order.adminApproved !== false
+      && order.paymentStatus !== 'rejected'
+      && !order.commissionVoided,
+    );
+  }, [orders, currentDealer]);
+
+  const dealerProductOrders = useMemo(() => dealerCommissionOrders.filter(order =>
+    getDealerOrderItems(order).length > 0,
+  ), [dealerCommissionOrders, currentDealer, dealerProductIds]);
+
+  const dealerOrders = useMemo(() => dealerCommissionOrders.filter(order =>
+    getDealerOrderItems(order).length > 0 || getDealerOrderCommission(order) > 0,
+  ), [dealerCommissionOrders, currentDealer, dealerProductIds]);
+
+  const dealerTotalSales = useMemo(() => dealerProductOrders
+    .reduce((total, order) => total + Number(order.totalPrice ?? 0), 0), [dealerProductOrders]);
+  const dealerEarnedCommission = useMemo(() => dealerCommissionOrders
+    .reduce((total, order) => total + getDealerOrderCommission(order), 0), [dealerCommissionOrders]);
+
+  const withdrawableCommission = useMemo(() => {
+    return Math.max(
+      0,
+      dealerEarnedCommission - totalPaidCommissions - pendingCommissionAmount,
+    );
+  }, [dealerEarnedCommission, totalPaidCommissions, pendingCommissionAmount]);
+
   const handleProductSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -762,32 +813,62 @@ export default function DealerDashboard({
   // Order Management States
   const [selectedOrderToManage, setSelectedOrderToManage] = useState<Order | null>(null);
   const [selectedOrderDetail, setSelectedOrderDetail] = useState<Order | null>(null);
-  const [manageShippingStatus, setManageShippingStatus] = useState<'preparing' | 'shipped' | 'delivered' | 'cancelled'>('preparing');
-  const [manageShippingCompany, setManageShippingCompany] = useState('Yurtiçi Kargo');
-  const [manageTrackingNumber, setManageTrackingNumber] = useState('');
+  const [manageShippingStatusByItem, setManageShippingStatusByItem] = useState<Record<string, ShippingStatus>>({});
+  const [manageShippingCompanyByItem, setManageShippingCompanyByItem] = useState<Record<string, string>>({});
+  const [manageTrackingNumberByItem, setManageTrackingNumberByItem] = useState<Record<string, string>>({});
+
+  const getDealerOrderItemEntries = (order: Order) => order.items
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => getDealerOrderItems(order).includes(item));
+
+  const getDealerOrderShippingStatus = (order: Order): ShippingStatus => {
+    const statuses = getDealerOrderItemEntries(order).map(({ index }) => getOrderItemShippingStatus(order, index));
+    if (statuses.length === 0) return getOrderShippingStatus(order, order.dealerId);
+    if (statuses.every(status => status === 'delivered')) return 'delivered';
+    if (statuses.every(status => status === 'cancelled')) return 'cancelled';
+    if (statuses.some(status => status === 'shipped' || status === 'delivered')) return 'shipped';
+    return 'preparing';
+  };
 
   const openManageOrderModal = (order: Order) => {
+    const entries = getDealerOrderItemEntries(order);
     setSelectedOrderToManage(order);
-    setManageShippingStatus(order.shippingStatus || 'preparing');
-    setManageShippingCompany(order.shippingCompany || 'Yurtiçi Kargo');
-    setManageTrackingNumber(order.shippingTrackingNumber || '');
+    setManageShippingStatusByItem(Object.fromEntries(entries.map(({ index }) => [String(index), getOrderItemShippingStatus(order, index)])));
+    setManageShippingCompanyByItem(Object.fromEntries(entries.map(({ index }) => [String(index), getOrderItemShippingCompany(order, index)])));
+    setManageTrackingNumberByItem(Object.fromEntries(entries.map(({ index }) => [String(index), getOrderItemTrackingNumber(order, index)])));
   };
 
   const handleUpdateOrderShipping = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedOrderToManage) return;
 
-    const nextStatus = manageShippingStatus === 'delivered' ? 'completed' as const : selectedOrderToManage.status;
-    if (manageShippingStatus === 'shipped' && !manageTrackingNumber.trim()) {
-      alert('Kargoya verildi durumunda takip numarası zorunludur.');
+    const entries = getDealerOrderItemEntries(selectedOrderToManage);
+    const nextStatusByItem = { ...(selectedOrderToManage.shippingStatusByItem || {}), ...manageShippingStatusByItem };
+    const nextCompanyByItem = { ...(selectedOrderToManage.shippingCompanyByItem || {}), ...manageShippingCompanyByItem };
+    const nextTrackingByItem = { ...(selectedOrderToManage.shippingTrackingNumberByItem || {}), ...manageTrackingNumberByItem };
+    const hasInvalidTracking = entries.some(({ index }) => nextStatusByItem[String(index)] === 'shipped' && !nextTrackingByItem[String(index)]?.trim());
+    if (hasInvalidTracking) {
+      alert('Kargoya verildi olarak işaretlenen her ürün için takip numarası zorunludur.');
       return;
     }
 
+    const nextAggregateStatus = entries.length > 0 && entries.every(({ index }) => nextStatusByItem[String(index)] === 'delivered')
+      ? 'delivered' as const
+      : entries.length > 0 && entries.every(({ index }) => nextStatusByItem[String(index)] === 'cancelled')
+        ? 'cancelled' as const
+        : entries.some(({ index }) => ['shipped', 'delivered'].includes(nextStatusByItem[String(index)]))
+          ? 'shipped' as const
+          : 'preparing' as const;
     const changes: Partial<Order> = {
-      shippingStatus: manageShippingStatus,
-      shippingCompany: manageShippingCompany,
-      shippingTrackingNumber: manageTrackingNumber.trim() || undefined,
-      status: nextStatus,
+      shippingStatus: nextAggregateStatus,
+      shippingStatusByItem: nextStatusByItem,
+      shippingCompanyByItem: nextCompanyByItem,
+      shippingTrackingNumberByItem: nextTrackingByItem,
+      status: nextAggregateStatus === 'delivered'
+        ? 'completed'
+        : nextAggregateStatus === 'cancelled'
+          ? 'cancelled'
+          : selectedOrderToManage.status,
     };
 
     try {
@@ -861,9 +942,9 @@ export default function DealerDashboard({
     onUpdateDealerProfile(updatedDealer);
   };
 
-  const handleWithdrawSubmit = (e: React.FormEvent) => {
+  const handleWithdrawSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentDealer) return;
+    if (!currentDealer || isWithdrawSubmitting) return;
     if (withdrawAmount < 10 || withdrawAmount > withdrawableCommission) {
       alert(`Çekim tutarı 10,00 TL ile ${withdrawableCommission.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL arasında olmalıdır.`);
       return;
@@ -881,17 +962,22 @@ export default function DealerDashboard({
       return;
     }
 
-    // Komisyon Talebi Gönder
-    onSendCommissionRequest({
-      dealerId: currentDealer.id,
-      dealerName: currentDealer.name,
-      amount: withdrawAmount,
-      bankName: bankName,
-      accountHolder: accountHolder,
-      iban: iban
-    });
-
-    setIsWithdrawSuccess(true);
+    setIsWithdrawSubmitting(true);
+    try {
+      await onSendCommissionRequest({
+        dealerId: currentDealer.id,
+        dealerName: currentDealer.name,
+        amount: withdrawAmount,
+        bankName,
+        accountHolder,
+        iban,
+      });
+      setIsWithdrawSuccess(true);
+    } catch {
+      alert('Komisyon talebi gönderilemedi. Lütfen bilgilerinizi kontrol edip tekrar deneyin.');
+    } finally {
+      setIsWithdrawSubmitting(false);
+    }
   };
 
   const closeWithdrawModal = () => {
@@ -938,7 +1024,7 @@ export default function DealerDashboard({
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button
             id="dealer-subtab-dashboard"
             onClick={() => setActiveSubTab('dashboard')}
@@ -972,6 +1058,19 @@ export default function DealerDashboard({
           >
             Ürün & Katalog Yönetimi ({dealerProducts.length})
           </button>
+          <button
+            id="dealer-commission-action-btn"
+            type="button"
+            onClick={() => {
+              setActiveSubTab('dashboard');
+              requestAnimationFrame(() => {
+                document.getElementById('dealer-commission-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              });
+            }}
+            className="px-4 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer bg-amber-500 text-slate-950 hover:bg-amber-400 shadow-xs flex items-center gap-1.5"
+          >
+            <Coins className="w-3.5 h-3.5" /> Kazanç & Komisyon
+          </button>
         </div>
       </div>
 
@@ -994,7 +1093,7 @@ export default function DealerDashboard({
               </div>
 
               {/* Commission balance card */}
-              <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-3 shadow-2xs relative overflow-hidden">
+              <div id="dealer-commission-section" className="bg-white border border-slate-200 rounded-2xl p-6 space-y-3 shadow-2xs relative overflow-hidden scroll-mt-6">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-2xl"></div>
                 <span className="text-slate-400 text-[10px] font-bold tracking-wider uppercase block">
                   BİRİKEN HAKEDİŞ BAKİYESİ
@@ -1008,8 +1107,8 @@ export default function DealerDashboard({
                     <span className="font-bold text-slate-700">%{currentDealer.commissionRate !== undefined ? currentDealer.commissionRate : commissionRate}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Vitrin Yönetici Kesintisi:</span>
-                    <span className="font-bold text-emerald-600">%{currentDealer.privateCommissionRate !== undefined ? currentDealer.privateCommissionRate : 5}</span>
+                    <span>Vitrin Bayi Komisyonu:</span>
+                    <span className="font-bold text-emerald-600">%{currentDealer.privateCommissionRate !== undefined ? currentDealer.privateCommissionRate : defaultPrivateCommissionRate}</span>
                   </div>
                 </div>
 
@@ -1056,7 +1155,7 @@ export default function DealerDashboard({
                 Müşteri platformda ortak ürünlerden alışveriş yaparken sizi seçtiğinde, sipariş onaylandığı anda sistem otomatik olarak <strong>%{currentDealer.commissionRate !== undefined ? currentDealer.commissionRate : commissionRate} komisyonu</strong> hakediş bakiyenize ekler.
               </p>
               <p>
-                Kendi eklediğiniz <strong>Özel Vitrin Ürünlerinizden</strong> satılan siparişlerde ise, sipariş tutarından sadece yönetici tarafından belirlenen <strong>%{currentDealer.privateCommissionRate !== undefined ? currentDealer.privateCommissionRate : 5} komisyon kesintisi</strong> yapılır. Kalan <strong>%{100 - (currentDealer.privateCommissionRate !== undefined ? currentDealer.privateCommissionRate : 5)} hakediş tutarı</strong> doğrudan sizin bakiyenize (Hakediş) yansır.
+                Kendi eklediğiniz <strong>Özel Vitrin Ürünlerinizden</strong> satılan siparişlerde, yönetici tarafından belirlenen <strong>%{currentDealer.privateCommissionRate !== undefined ? currentDealer.privateCommissionRate : defaultPrivateCommissionRate} bayi komisyonu</strong> doğrudan sizin hakediş bakiyenize eklenir. Kalan <strong>%{100 - (currentDealer.privateCommissionRate !== undefined ? currentDealer.privateCommissionRate : defaultPrivateCommissionRate)} merkez platform payıdır</strong>.
               </p>
               <p className="font-semibold text-slate-700">
                 Tüm sipariş ödemeleri güvenli bir şekilde Merkez Havuz Hesabında toplanır. Sipariş teslim edilip onaylandıktan sonra biriken kazancınızı dilediğiniz zaman "Komisyon Talebi Gönder" butonuyla IBAN adresinize talep edebilirsiniz.
@@ -1541,16 +1640,16 @@ export default function DealerDashboard({
               <div>
                 <h3 className="font-display font-bold text-sm text-slate-900 tracking-tight uppercase flex items-center gap-1.5">
                   <ShoppingBag className="w-5 h-5 text-blue-600" />
-                  Sizin Üzerinizden Geçen Siparişler ({dealerOrders.length} Sipariş)
+                  Bayinize Yönlendirilen Siparişler ({dealerOrders.length} Sipariş)
                 </h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  Müşteriler tarafından onaylanmış veya admin tarafından yönlendirilmiş aktif siparişleriniz.
+                  Seçilen bayiyle eşleştirilen ortak ve özel ürün siparişleri burada gösterilir.
                 </p>
               </div>
               <button
                 id="dealer-new-order-request-btn"
                 onClick={() => {
-                  setSelectedProductId(products[0]?.id || '');
+                  setSelectedProductId(dealerProducts[0]?.id || '');
                   setIsNewOrderModalOpen(true);
                 }}
                 className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
@@ -1566,8 +1665,8 @@ export default function DealerDashboard({
                     <th className="p-3">Sipariş ID</th>
                     <th className="p-3">Müşteri Detayı</th>
                     <th className="p-3">Tarih</th>
-                    <th className="p-3">Alınan Ürünler</th>
-                    <th className="p-3 text-right">Sipariş Tutarı</th>
+                    <th className="p-3">Alınan Bayi Ürünleri</th>
+                    <th className="p-3 text-right">Bayi Ürünleri Tutarı</th>
                     <th className="p-3 text-right">Kazanılan Net Komisyon ({currentDealer.commissionRate !== undefined ? `%${currentDealer.commissionRate}` : `%${commissionRate}`})</th>
                     <th className="p-3 text-right">Merkez Payı / Kesinti</th>
                     <th className="p-3 text-right font-semibold">Süreç / Kargo Durumu</th>
@@ -1577,11 +1676,11 @@ export default function DealerDashboard({
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
                   {dealerOrders.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="p-6 text-center text-slate-400 text-xs">Müşteriler henüz sizi seçerek bir sipariş vermedi.</td>
+                      <td colSpan={9} className="p-6 text-center text-slate-400 text-xs">Yüklediğiniz ürünlerden henüz sipariş verilmedi.</td>
                     </tr>
                   ) : (
                     [...dealerOrders].reverse().map(order => (
-                      <tr id={`dealer-order-row-${order.id}`} key={order.id} onClick={() => setSelectedOrderDetail(order)} className="hover:bg-slate-50/50 cursor-pointer" title="Detaylı bilgi için tıklayın">
+                      <tr id={`dealer-order-row-${order.id}`} key={order.id} onClick={() => setSelectedOrderDetail(getDealerOrderView(order))} className="hover:bg-slate-50/50 cursor-pointer" title="Detaylı bilgi için tıklayın">
                         <td className="p-3 font-bold text-slate-900">
                           <span className="flex items-center gap-1">
                             {order.id}
@@ -1597,15 +1696,17 @@ export default function DealerDashboard({
                           <span className="text-[10px] text-slate-400">{order.customerPhone}</span>
                         </td>
                         <td className="p-3 text-slate-400">{new Date(order.date).toLocaleDateString('tr-TR')}</td>
-                        <td className="p-3 max-w-[200px] truncate" title={order.items.map(i => `${i.name} (${i.quantity})`).join(', ')}>
-                          {order.items.map(i => `${i.name} (x${i.quantity})`).join(', ')}
+                        <td className="p-3 max-w-[200px] truncate" title={getDealerOrderItems(order).length > 0 ? getDealerOrderItems(order).map(item => `${item.name} (${item.quantity})`).join(', ') : 'Merkez ürünleri — bayi seçimi komisyonu'}>
+                          {getDealerOrderItems(order).length > 0
+                            ? getDealerOrderItems(order).map(item => `${item.name} (x${item.quantity})`).join(', ')
+                            : <span className="text-amber-600 font-semibold">Merkez ürünleri — bayi seçimi komisyonu</span>}
                         </td>
                         <td className="p-3 text-right font-mono text-slate-900 font-semibold">
-                          {Number(order.totalPrice ?? 0).toFixed(2)} TL
+                          {getDealerOrderItems(order).length > 0 ? `${getDealerOrderTotal(order).toFixed(2)} TL` : '—'}
                         </td>
                         <td className="p-3 text-right font-mono font-bold text-emerald-600">
                           <div className="flex flex-col items-end">
-                            <span>+{Number(order.commissionAmount ?? 0).toFixed(2)} TL</span>
+                            <span>+{getDealerOrderCommission(order).toFixed(2)} TL</span>
                             {order.isFromDealerPage && (
                               <span className="text-[8px] bg-amber-50 text-amber-700 px-1.5 py-0.2 rounded font-bold uppercase mt-0.5 whitespace-nowrap">Vitrin Satışı</span>
                             )}
@@ -1614,7 +1715,7 @@ export default function DealerDashboard({
                         <td className="p-3 text-right font-mono font-bold text-indigo-600">
                           <div className="flex flex-col items-end">
                             <span className="text-rose-600">
-                              -{(order.adminCommissionAmount ?? 0).toFixed(2)} TL
+                              {getDealerOrderAdminCommission(order) > 0 ? `-${getDealerOrderAdminCommission(order).toFixed(2)}` : '0.00'} TL
                             </span>
                             {order.isFromDealerPage ? (
                               <span className="text-[8px] bg-indigo-50 text-indigo-700 px-1.5 py-0.2 rounded font-bold uppercase mt-0.5 whitespace-nowrap">Vitrin Kesintisi</span>
@@ -1625,20 +1726,20 @@ export default function DealerDashboard({
                         </td>
                         <td className="p-3 text-right">
                           <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
-                            order.shippingStatus === 'delivered' ? 'bg-emerald-50 text-emerald-700' :
-                            order.shippingStatus === 'shipped' ? 'bg-purple-50 text-purple-700' :
+                            getDealerOrderShippingStatus(order) === 'delivered' ? 'bg-emerald-50 text-emerald-700' :
+                            getDealerOrderShippingStatus(order) === 'shipped' ? 'bg-purple-50 text-purple-700' :
                             'bg-blue-50 text-blue-700'
                           }`}>
-                            {order.shippingStatus === 'delivered' ? 'Teslim Edildi' :
-                             order.shippingStatus === 'shipped' ? `Sevk Edildi (${order.shippingCompany || 'Yurtiçi Kargo'})` :
-                             order.shippingStatus === 'cancelled' ? 'İptal / İade' :
+                            {getDealerOrderShippingStatus(order) === 'delivered' ? 'Teslim Edildi' :
+                             getDealerOrderShippingStatus(order) === 'shipped' ? 'Kısmi / Sevk Edildi' :
+                             getDealerOrderShippingStatus(order) === 'cancelled' ? 'İptal / İade' :
                              'Hazırlanıyor'}
                           </span>
                         </td>
                         <td className="p-3 text-right">
                           <div className="flex items-center justify-end gap-1.5 ml-auto">
                             <button
-                              onClick={(e) => { e.stopPropagation(); setSelectedOrderDetail(order); }}
+                              onClick={(e) => { e.stopPropagation(); setSelectedOrderDetail(getDealerOrderView(order)); }}
                               className="bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-700 text-[10px] font-bold px-2.5 py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
                               title="Sipariş Detaylarını Görüntüle"
                             >
@@ -1661,66 +1762,6 @@ export default function DealerDashboard({
             </div>
           </div>
 
-          {/* Pending Requests Section */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4 shadow-2xs">
-            <div className="border-b border-slate-100 pb-3">
-              <h3 className="font-display font-bold text-sm text-slate-900 tracking-tight uppercase flex items-center gap-1.5">
-                <Clock className="w-5 h-5 text-amber-500" />
-                Merkez Onayı Bekleyen Sipariş Talepleriniz ({pendingDealerOrders.length} Talep)
-              </h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Kendi stoğunuz veya müşterileriniz adına oluşturup Merkeze (Admin) gönderdiğiniz, onay bekleyen siparişler. Admin onayından sonra bakiye ve süreçlerinize yansıyacaktır.
-              </p>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100">
-                    <th className="p-3">Talep ID</th>
-                    <th className="p-3">Alıcı / Detay</th>
-                    <th className="p-3">Tarih</th>
-                    <th className="p-3">Ürün Detayı</th>
-                    <th className="p-3 text-right">Toplam Tutar</th>
-                    <th className="p-3 text-right">Tahmini Komisyon</th>
-                    <th className="p-3 text-right">Durum</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
-                  {pendingDealerOrders.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="p-6 text-center text-slate-400 text-xs">Onay bekleyen sipariş talebiniz bulunmamaktadır.</td>
-                    </tr>
-                  ) : (
-                    [...pendingDealerOrders].reverse().map(order => (
-                      <tr key={order.id} onClick={() => setSelectedOrderDetail(order)} className="hover:bg-slate-50/50 cursor-pointer" title="Detaylı bilgi için tıklayın">
-                        <td className="p-3 font-bold text-slate-900">{order.id}</td>
-                        <td className="p-3">
-                          <span className="font-bold text-slate-800 block">{order.customerName}</span>
-                          <span className="text-[10px] text-slate-400">{order.customerPhone}</span>
-                        </td>
-                        <td className="p-3 text-slate-400">{new Date(order.date).toLocaleDateString('tr-TR')}</td>
-                        <td className="p-3">
-                          {order.items.map(i => `${i.name} (x${i.quantity})`).join(', ')}
-                        </td>
-                        <td className="p-3 text-right font-mono text-slate-900 font-semibold">
-                          {Number(order.totalPrice ?? 0).toFixed(2)} TL
-                        </td>
-                        <td className="p-3 text-right font-mono font-bold text-slate-400">
-                          {Number(order.commissionAmount ?? 0).toFixed(2)} TL
-                        </td>
-                        <td className="p-3 text-right">
-                          <span className="bg-amber-50 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1 animate-pulse">
-                            <Clock className="w-3 h-3" /> Admin Onayı Bekliyor
-                          </span>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
         </div>
       )}
 
@@ -2464,61 +2505,82 @@ export default function DealerDashboard({
                 </div>
                 <div className="flex justify-between">
                   <span>Sipariş Tutarı:</span>
-                  <span className="font-mono font-bold text-slate-800">{selectedOrderToManage.totalPrice.toFixed(2)} TL</span>
+                  <span className="font-mono font-bold text-slate-800">{getDealerOrderTotal(selectedOrderToManage).toFixed(2)} TL</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Net Komisyonunuz:</span>
-                  <span className="font-mono font-bold text-emerald-600">+{selectedOrderToManage.commissionAmount.toFixed(2)} TL</span>
+                  <span className="font-mono font-bold text-emerald-600">+{getDealerOrderCommission(selectedOrderToManage).toFixed(2)} TL</span>
                 </div>
                 <div className="pt-2 border-t border-slate-200 mt-1 flex flex-col gap-0.5">
                   <span className="font-bold text-[10px] text-slate-500">Alınan Ürünler:</span>
                   <span className="text-[10px] text-slate-500 font-medium">
-                    {selectedOrderToManage.items.map(i => `${i.name} (x${i.quantity})`).join(', ')}
+                    {getDealerOrderItemEntries(selectedOrderToManage).map(({ item }) => `${item.name} (x${item.quantity})`).join(', ')}
                   </span>
                 </div>
               </div>
 
               <div className="space-y-3">
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Sipariş & Gönderim Süreci Durumu *</label>
-                  <select
-                    value={manageShippingStatus}
-                    onChange={e => setManageShippingStatus(e.target.value as any)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-hidden focus:border-blue-500 focus:bg-white"
-                  >
-                    <option value="preparing">Hazırlanıyor (Merkez / Mağaza)</option>
-                    <option value="shipped">Sevk Edildi / Kargoya Verildi</option>
-                    <option value="delivered">Teslim Edildi (Ödeme Esnafa Kesinleşir)</option>
-                    <option value="cancelled">İptal Edildi</option>
-                  </select>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Ürün Bazlı Kargo Güncellemesi</label>
+                  <p className="text-[10px] text-slate-400 mb-2">Kargolaması yapılan ürünleri ayrı ayrı seçin. Her ürünün sevk durumu ve takip numarası bağımsız kaydedilir.</p>
                 </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Anlaşmalı Kargo Firması</label>
-                  <select
-                    value={manageShippingCompany}
-                    onChange={e => setManageShippingCompany(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-hidden focus:border-blue-500 focus:bg-white"
-                  >
-                    <option value="Yurtiçi Kargo">Yurtiçi Kargo</option>
-                    <option value="Aras Kargo">Aras Kargo</option>
-                    <option value="MNG Kargo">MNG Kargo</option>
-                    <option value="Sürat Kargo">Sürat Kargo</option>
-                    <option value="PTT Kargo">PTT Kargo</option>
-                    <option value="Trendyol Express">Trendyol Express</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Kargo Takip Numarası</label>
-                  <input
-                    type="text"
-                    value={manageTrackingNumber}
-                    onChange={e => setManageTrackingNumber(e.target.value)}
-                    placeholder="Örn: YT7432850931"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-hidden focus:border-blue-500 focus:bg-white font-mono"
-                  />
-                </div>
+                {getDealerOrderItemEntries(selectedOrderToManage).map(({ item, index }) => {
+                  const itemKey = String(index);
+                  return (
+                    <div key={`${selectedOrderToManage.id}-${itemKey}`} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <span className="font-bold text-xs text-slate-800 block truncate">{item.name}</span>
+                          <span className="text-[10px] text-slate-500">x{item.quantity} · {item.price.toFixed(2)} TL · Toplam {(item.price * item.quantity).toFixed(2)} TL</span>
+                        </div>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold ${
+                          (manageShippingStatusByItem[itemKey] || 'preparing') === 'delivered'
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : (manageShippingStatusByItem[itemKey] || 'preparing') === 'shipped'
+                              ? 'bg-blue-100 text-blue-700'
+                              : (manageShippingStatusByItem[itemKey] || 'preparing') === 'cancelled'
+                                ? 'bg-rose-100 text-rose-700'
+                                : 'bg-amber-100 text-amber-700'
+                        }`}>
+                          {(manageShippingStatusByItem[itemKey] || 'preparing') === 'delivered' ? 'Teslim Edildi' :
+                           (manageShippingStatusByItem[itemKey] || 'preparing') === 'shipped' ? 'Kargoda' :
+                           (manageShippingStatusByItem[itemKey] || 'preparing') === 'cancelled' ? 'İptal' : 'Hazırlanıyor'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <select
+                          value={manageShippingStatusByItem[itemKey] || 'preparing'}
+                          onChange={event => setManageShippingStatusByItem(previous => ({ ...previous, [itemKey]: event.target.value as ShippingStatus }))}
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-hidden focus:border-blue-500"
+                        >
+                          <option value="preparing">Hazırlanıyor</option>
+                          <option value="shipped">Sevk Edildi / Kargoya Verildi</option>
+                          <option value="delivered">Teslim Edildi</option>
+                          <option value="cancelled">İptal Edildi</option>
+                        </select>
+                        <select
+                          value={manageShippingCompanyByItem[itemKey] || 'Yurtiçi Kargo'}
+                          onChange={event => setManageShippingCompanyByItem(previous => ({ ...previous, [itemKey]: event.target.value }))}
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-hidden focus:border-blue-500"
+                        >
+                          <option value="Yurtiçi Kargo">Yurtiçi Kargo</option>
+                          <option value="Aras Kargo">Aras Kargo</option>
+                          <option value="MNG Kargo">MNG Kargo</option>
+                          <option value="Sürat Kargo">Sürat Kargo</option>
+                          <option value="PTT Kargo">PTT Kargo</option>
+                          <option value="Trendyol Express">Trendyol Express</option>
+                        </select>
+                      </div>
+                      <input
+                        type="text"
+                        value={manageTrackingNumberByItem[itemKey] || ''}
+                        onChange={event => setManageTrackingNumberByItem(previous => ({ ...previous, [itemKey]: event.target.value }))}
+                        placeholder="Kargo takip numarası"
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-hidden focus:border-blue-500 font-mono"
+                      />
+                    </div>
+                  );
+                })}
               </div>
 
               <div className="pt-4 border-t border-slate-100 flex gap-2">
@@ -2573,7 +2635,7 @@ export default function DealerDashboard({
                       onChange={e => setSelectedProductId(e.target.value)}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-hidden focus:border-blue-500 focus:bg-white"
                     >
-                      {products.map(product => (
+                      {dealerProducts.map(product => (
                         <option key={product.id} value={product.id}>
                           {product.name} ({product.price.toFixed(2)} TL) - Stok: {product.stock}
                         </option>
@@ -2813,9 +2875,10 @@ export default function DealerDashboard({
                   <button
                     id="submit-withdraw-btn"
                     type="submit"
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                    disabled={isWithdrawSubmitting}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs disabled:bg-slate-300 disabled:cursor-not-allowed cursor-pointer"
                   >
-                    Komisyon Talebini Gönder
+                    {isWithdrawSubmitting ? 'Gönderiliyor...' : 'Komisyon Talebini Gönder'}
                   </button>
                 </div>
               </form>
@@ -2857,6 +2920,10 @@ export default function DealerDashboard({
         onClose={() => setSelectedOrderDetail(null)}
         order={selectedOrderDetail}
         products={products}
+        dealers={dealers}
+        commissionRate={commissionRate}
+        viewerRole="dealer"
+        viewerDealerId={currentDealer?.id}
       />
     </div>
   );

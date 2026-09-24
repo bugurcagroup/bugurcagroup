@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { UserRole, Product, Dealer, Order, CartItem, StoreSettings, CommissionRequest, Member, LegalAcceptance, InvoiceDetails, SaleUnit } from './types';
+import { UserRole, Product, Dealer, Order, CartItem, StoreSettings, CommissionRequest, Member, DealerTransaction, LegalAcceptance, InvoiceDetails, SaleUnit } from './types';
 
 // Component Imports
 import Header from './components/Header';
@@ -16,16 +16,17 @@ import SecurityGate from './components/SecurityGate';
 import AntiDdosShield from './components/AntiDdosShield';
 import MobilePhotoUpload from './components/MobilePhotoUpload';
 import AdminLogin from './components/AdminLogin';
+import LegalDocumentPage, { type LegalDocumentSlug } from './components/LegalDocumentPage';
 import UserProfilePanel from './components/UserProfilePanel';
 import { getAuthErrorMessage, loginUser, logoutUser, provisionDealerAuth, registerUser, resetPassword, type UserProfile } from './lib/auth';
-import { submitDealerApplicationWithAuth } from './lib/dealerAdmin';
+import { recalculateDealerFinancials, submitDealerApplicationWithAuth } from './lib/dealerAdmin';
 import { deleteProduct as deleteFirestoreProduct, getProductsFromFirestore, subscribeToProducts, upsertProduct, upsertProductsBatch } from './lib/products';
-import { getDealersFromFirestore, subscribeToDealerApplications, subscribeToDealers, subscribeToPublicDealers, updateDealerApplicationStatus, upsertDealer, upsertDealerPrivate } from './lib/dealers';
+import { getDealersFromFirestore, subscribeToDealerApplications, subscribeToDealerPrivate, subscribeToDealers, subscribeToPublicDealers, updateDealerApplicationStatus, upsertDealer, upsertDealerPrivate } from './lib/dealers';
 import { DEFAULT_STORE_SETTINGS, getStoreSettings, subscribeToStoreSettings, updateStoreSettings } from './lib/settings';
 import { addCategory, subscribeToCategories } from './lib/categories';
 import { getMembersFromFirestore, saveMembersToFirestore, subscribeToMembers, upsertDealerMemberProfile } from './lib/users';
 import { createOrder as createFirestoreOrder, createOrderBundle as createFirestoreOrderBundle, deleteAllOrders, deleteAllTestOrders, getAllOrders, hideOrderFromAdmin, hideOrderFromMember, replaceOrders, subscribeToAllOrders, subscribeToDealerOrders, subscribeToUserOrders, upsertOrder, updateOrder as firestoreUpdateOrder } from './lib/orders';
-import { createCommissionRequest as createFirestoreCommissionRequest, createCommissionTransaction, deleteAllCommissionData, getAllCommissionRequests, subscribeToAllCommissionRequests, subscribeToDealerCommissionRequests, updateCommissionStatus } from './lib/commissions';
+import { createCommissionRequest as createFirestoreCommissionRequest, createCommissionTransaction, deleteAllCommissionData, getAllCommissionRequests, subscribeToAllCommissionRequests, subscribeToAllDealerTransactions, subscribeToDealerCommissionRequests, subscribeToDealerProductPayouts, subscribeToDealerTransactions, updateCommissionStatus } from './lib/commissions';
 import { calculateOrderFinancials } from './lib/finance';
 import { getProductUnitPrice, getProductUnitQuantity } from './lib/productUnits';
 import { deleteDealerAccount, migrateDealerRecords } from './lib/dealerAdmin';
@@ -64,6 +65,8 @@ export default function App() {
   const [dealerApplications, setDealerApplications] = useState<import('./lib/dealers').DealerApplication[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [commissionRequests, setCommissionRequests] = useState<CommissionRequest[]>([]);
+  const [dealerProductPayouts, setDealerProductPayouts] = useState<DealerTransaction[]>([]);
+  const [dealerTransactions, setDealerTransactions] = useState<DealerTransaction[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [archives, setArchives] = useState<ArchiveRecord[]>([]);
   const [currentMember, setCurrentMember] = useState<Member | null>(null);
@@ -137,7 +140,7 @@ export default function App() {
     const unsubscribe = firebaseUser.role === 'admin'
       ? subscribeToAllOrders(setOrders, logOrderSubscriptionError('Merkez'))
       : firebaseUser.role === 'bayi' && loggedInDealer
-        ? subscribeToDealerOrders(loggedInDealer.id, loggedInDealer.userId, setOrders, logOrderSubscriptionError('Bayi'))
+        ? subscribeToDealerOrders(loggedInDealer.id, setOrders, logOrderSubscriptionError('Bayi'))
         : subscribeToUserOrders(firebaseUser.uid, firebaseUser.email, setOrders, logOrderSubscriptionError('Üye'));
 
     return unsubscribe;
@@ -166,8 +169,33 @@ export default function App() {
     const subscribeDealersForRole = firebaseUser?.role === 'admin'
       ? subscribeToDealers
       : subscribeToPublicDealers;
+    let unsubscribePrivateDealer = () => undefined;
+    let privateDealer: Dealer | null = null;
     const unsubscribeDealers = subscribeDealersForRole(loadedDealers => {
-      setDealers(loadedDealers);
+      const mergedDealers = privateDealer
+        ? loadedDealers.map(dealer => dealer.id === privateDealer?.id ? { ...dealer, ...privateDealer } : dealer)
+        : loadedDealers;
+      setDealers(mergedDealers);
+
+      if (firebaseUser?.role === 'bayi' && firebaseUser.email) {
+        const loggedDealer = loadedDealers.find(dealer =>
+          dealer.userId === firebaseUser.uid
+          || dealer.email?.trim().toLowerCase() === firebaseUser.email.trim().toLowerCase()
+        );
+        unsubscribePrivateDealer();
+        if (loggedDealer) {
+          unsubscribePrivateDealer = subscribeToDealerPrivate(
+            loggedDealer.id,
+            loadedPrivateDealer => {
+              privateDealer = loadedPrivateDealer;
+              if (!loadedPrivateDealer) return;
+              setDealers(previous => previous.map(dealer => dealer.id === loadedPrivateDealer.id ? { ...dealer, ...loadedPrivateDealer } : dealer));
+            },
+            error => console.warn('Bayi özel finans bilgileri canlı dinlenemedi', error),
+          );
+        }
+      }
+
       const params = new URLSearchParams(window.location.search);
       const urlDealerId = params.get('dealer') || params.get('bayi');
       const matched = loadedDealers.find(dealer => dealer.id === urlDealerId && dealer.status === 'active');
@@ -175,7 +203,6 @@ export default function App() {
         setSelectedDealer(matched);
         setReferralInfo(matched.name);
         setIsReferralLocked(true);
-        // Referans bağlantısıyla gelen ziyaretçi her zaman tanıtım vitrinini görür, özel paneli değil
         setCurrentRole('customer');
         setActiveTab('store');
         window.history.replaceState(null, '', window.location.pathname);
@@ -187,11 +214,12 @@ export default function App() {
 
     return () => {
       unsubscribeDealers();
+      unsubscribePrivateDealer();
       unsubscribeProducts();
       unsubscribeCategories();
       unsubscribeSettings();
     };
-  }, [firebaseUser?.role]);
+  }, [firebaseUser?.role, firebaseUser?.uid, firebaseUser?.email]);
 
   useEffect(() => {
     if (!firebaseUser) return;
@@ -218,10 +246,11 @@ export default function App() {
 
     if (firebaseUser.role === 'bayi') {
       const matchingDealer = dealers.find(dealer =>
-        dealer.email?.trim().toLowerCase() === firebaseUser.email.trim().toLowerCase()
+        dealer.userId === firebaseUser.uid
+        || dealer.email?.trim().toLowerCase() === firebaseUser.email.trim().toLowerCase()
       );
       if (matchingDealer && matchingDealer.status === 'active') {
-        setLoggedInDealer(matchingDealer);
+        setLoggedInDealer({ ...matchingDealer, userId: matchingDealer.userId || firebaseUser.uid });
         setCurrentRole('dealer');
         setDealerSubTab(getSavedPanelTab('bayi') || 'dashboard');
       }
@@ -259,6 +288,13 @@ export default function App() {
   }, [firebaseUser?.role]);
 
   useEffect(() => {
+    if (firebaseUser?.role !== 'admin') return;
+    void recalculateDealerFinancials().catch(error => {
+      console.error('Bayi finans mutabakatı çalıştırılamadı', error);
+    });
+  }, [firebaseUser?.role]);
+
+  useEffect(() => {
     if (firebaseUser?.role === 'admin') {
       return subscribeToAllCommissionRequests(setCommissionRequests, error => console.error('Merkez komisyon talepleri canlı dinlenemedi', error));
     }
@@ -268,6 +304,35 @@ export default function App() {
     setCommissionRequests([]);
     return undefined;
   }, [firebaseUser?.role, loggedInDealer?.id, loggedInDealer?.userId]);
+
+  useEffect(() => {
+    if (firebaseUser?.role !== 'admin') {
+      setDealerProductPayouts([]);
+      return;
+    }
+    return subscribeToDealerProductPayouts(
+      setDealerProductPayouts,
+      error => console.error('Bayi ürün ödeme kayıtları canlı dinlenemedi', error),
+    );
+  }, [firebaseUser?.role]);
+
+  useEffect(() => {
+    if (firebaseUser?.role === 'admin') {
+      return subscribeToAllDealerTransactions(
+        setDealerTransactions,
+        error => console.error('Bayi ödeme hareketleri canlı dinlenemedi', error),
+      );
+    }
+    if (firebaseUser?.role === 'bayi' && loggedInDealer) {
+      return subscribeToDealerTransactions(
+        loggedInDealer.id,
+        setDealerTransactions,
+        error => console.error('Bayi ödeme hareketleri canlı dinlenemedi', error),
+      );
+    }
+    setDealerTransactions([]);
+    return undefined;
+  }, [firebaseUser?.role, firebaseUser?.uid, loggedInDealer?.id]);
 
   // Sync and process ?dealer= or ?bayi= query parameter when dealers update from the server
   useEffect(() => {
@@ -325,20 +390,11 @@ export default function App() {
       return false;
     }
     try {
-      const profile = await registerUser(email, password, {
+      await registerUser(email, password, {
         displayName: name.trim(),
         phone,
         legalAcceptances,
       });
-      const member: Member = {
-        id: profile.uid,
-        name: profile.displayName || name.trim(),
-        email: profile.email,
-        phone: profile.phone,
-        createdAt: profile.createdAt || new Date().toISOString(),
-        legalAcceptances,
-      };
-      setCurrentMember(member);
       return true;
     } catch (error) {
       alert(`Kayıt oluşturulamadı: ${getAuthErrorMessage(error)}`);
@@ -361,16 +417,7 @@ export default function App() {
 
   const handleMemberLogin = async (email: string, password: string) => {
     try {
-      const profile = await loginUser(email, password);
-      const member: Member = {
-        id: profile.uid,
-        name: profile.displayName || profile.email,
-        email: profile.email,
-        phone: profile.phone,
-        createdAt: profile.createdAt || new Date().toISOString(),
-        legalAcceptances: profile.legalAcceptances as LegalAcceptance[] | undefined,
-      };
-      setCurrentMember(member);
+      await loginUser(email, password);
       return true;
     } catch {
       alert('E-posta veya şifre hatalı.');
@@ -420,7 +467,18 @@ export default function App() {
         alert('Bu hesap bayi yetkisine sahip değil.');
         return false;
       }
-      const matched = dealers.find(d => d.email && d.email.toLowerCase().trim() === profile.email.toLowerCase().trim());
+      let matched = dealers.find(d =>
+        d.userId === profile.uid
+        || d.email?.toLowerCase().trim() === profile.email.toLowerCase().trim()
+      );
+      if (!matched) {
+        const freshDealers = await getDealersFromFirestore();
+        setDealers(freshDealers);
+        matched = freshDealers.find(d =>
+          d.userId === profile.uid
+          || d.email?.toLowerCase().trim() === profile.email.toLowerCase().trim()
+        );
+      }
       if (!matched) {
         await logoutUser();
         alert('Bu bayi kaydı yönetici tarafından silinmiştir. Yeni başvuru için lütfen bayi başvuru formunu kullanın.');
@@ -464,6 +522,8 @@ export default function App() {
       return;
     }
     setSelectedDealer(dealer);
+    // Bayi seçildiğinde özel ürünlere erişim için referral lock aktif et
+    setIsReferralLocked(!!dealer);
   };
 
   // Sepet İşlemleri
@@ -571,7 +631,7 @@ export default function App() {
     });
     const groupedItems = new Map<string, typeof orderItems>();
     orderItems.forEach(item => {
-      const groupId = item.dealerId || 'central';
+      const groupId = isFromDealerPage ? selectedDealer.id : item.dealerId || selectedDealer.id;
       groupedItems.set(groupId, [...(groupedItems.get(groupId) || []), item]);
     });
     const paymentStatus = paymentMethod === 'card' ? 'approved' as const : 'under_review' as const;
@@ -612,8 +672,11 @@ export default function App() {
     const subOrders = Array.from(groupedItems.entries()).map(([dealerId, items]) => {
       const dealer = dealers.find(item => item.id === dealerId);
       const subTotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      const commissionableTotal = items
+        .filter(item => item.source !== 'dealer' && !item.dealerId)
+        .reduce((sum, item) => sum + item.price * item.quantity, 0);
       const financials = dealer
-        ? calculateOrderFinancials(subTotal, dealer, storeSettings, Boolean(isFromDealerPage))
+        ? calculateOrderFinancials(commissionableTotal, dealer, storeSettings, Boolean(isFromDealerPage))
         : { dealerCommissionAmount: 0, adminCommissionAmount: 0 };
       return {
         ...sharedOrderData,
@@ -623,6 +686,7 @@ export default function App() {
         items,
         totalPrice: subTotal,
         commissionAmount: financials.dealerCommissionAmount,
+        dealerCommissionAmount: financials.dealerCommissionAmount,
         adminCommissionAmount: financials.adminCommissionAmount,
       };
     });
@@ -820,13 +884,21 @@ export default function App() {
 
   // --- BAYİ PANELI İŞLEMLERİ ---
   const handleDealerUpdateProfile = async (dealer: Dealer) => {
-    await upsertDealerPrivate(dealer);
-    setDealers(previous => previous.map(item => item.id === dealer.id ? dealer : item));
-    if (loggedInDealer?.id === dealer.id) setLoggedInDealer(dealer);
+    const currentDealer = dealers.find(item => item.id === dealer.id);
+    const profileUpdate: Dealer = currentDealer
+      ? {
+        ...dealer,
+        commissionRate: currentDealer.commissionRate,
+        privateCommissionRate: currentDealer.privateCommissionRate,
+        adminSectorCommissionRate: currentDealer.adminSectorCommissionRate,
+      }
+      : dealer;
+    await upsertDealerPrivate(profileUpdate);
+    setDealers(previous => previous.map(item => item.id === profileUpdate.id ? profileUpdate : item));
+    if (loggedInDealer?.id === profileUpdate.id) setLoggedInDealer(profileUpdate);
 
-    // If it's the currently selected dealer by customer, update too
-    if (selectedDealer?.id === dealer.id) {
-      setSelectedDealer(dealer);
+    if (selectedDealer?.id === profileUpdate.id) {
+      setSelectedDealer(profileUpdate);
     }
   };
 
@@ -847,7 +919,10 @@ export default function App() {
 
   // --- KOMİSYON / HAKEDİŞ İŞLEMLERİ ---
   const handleCreateCommissionRequest = async (requestData: Omit<CommissionRequest, 'id' | 'status' | 'date'>) => {
-    const requestWithUser = { ...requestData, dealerUserId: firebaseUser?.uid };
+    if (firebaseUser?.role !== 'bayi' || !firebaseUser.uid || !loggedInDealer || requestData.dealerId !== loggedInDealer.id) {
+      throw new Error('Komisyon talebi yalnızca giriş yapan bayi için oluşturulabilir.');
+    }
+    const requestWithUser = { ...requestData, dealerUserId: firebaseUser.uid };
     const requestId = await createFirestoreCommissionRequest(requestWithUser);
     setCommissionRequests(previous => [...previous, { ...requestWithUser, id: requestId, status: 'pending', date: new Date().toISOString() }]);
   };
@@ -863,13 +938,37 @@ export default function App() {
   };
 
   const handlePayCommissionDirectly = async (dealerId: string, amount: number) => {
-    await createCommissionTransaction(dealerId, amount, 'payout');
+    const dealer = dealers.find(item => item.id === dealerId);
+    await createCommissionTransaction(dealerId, amount, 'payout', undefined, dealer?.userId);
+  };
+
+  const handlePayDealerProductSales = async (dealerId: string, amount: number) => {
+    const dealer = dealers.find(item => item.id === dealerId);
+    await createCommissionTransaction(
+      dealerId,
+      amount,
+      'dealer_product_payout',
+      'Bayi ürünleri satış bedeli merkez havuzdan ödendi',
+      dealer?.userId,
+    );
   };
 
   const isMobileUploadPage = typeof window !== 'undefined' && window.location.pathname === '/mobile-upload';
+  const legalRoutes: Record<string, LegalDocumentSlug> = {
+    '/mesafeli-satis-sozlesmesi': 'mesafeli-satis-sozlesmesi',
+    '/on-bilgilendirme-formu': 'on-bilgilendirme-formu',
+    '/iptal-iade-kosullari': 'iptal-iade-kosullari',
+    '/kvkk-aydinlatma-metni': 'kvkk-aydinlatma-metni',
+    '/kargo-teslimat-kosullari': 'kargo-teslimat-kosullari',
+  };
+  const legalRoute = typeof window !== 'undefined' ? legalRoutes[window.location.pathname] : undefined;
 
   if (isMobileUploadPage) {
     return <MobilePhotoUpload />;
+  }
+
+  if (legalRoute) {
+    return <LegalDocumentPage slug={legalRoute} />;
   }
 
   // Show admin login screen if admin role is selected but not authenticated
@@ -1111,7 +1210,9 @@ export default function App() {
             activeSubTab={dealerSubTab}
             setActiveSubTab={handleDealerTabChange}
             commissionRate={storeSettings.commissionRate}
+            defaultPrivateCommissionRate={storeSettings.defaultPrivateCommissionRate}
             commissionRequests={commissionRequests}
+            dealerTransactions={dealerTransactions}
             onSendCommissionRequest={handleCreateCommissionRequest}
             selectedDealerId={loggedInDealer ? loggedInDealer.id : selectedDealer?.id}
             onSaveProduct={handleAdminSaveProduct}
@@ -1189,13 +1290,17 @@ export default function App() {
             setActiveSubTab={handleAdminTabChange}
             storeSettings={storeSettings}
             commissionRequests={commissionRequests}
+            dealerTransactions={dealerTransactions}
             onApproveCommissionRequest={handleApproveCommissionRequest}
             onRejectCommissionRequest={handleRejectCommissionRequest}
             onPayCommissionDirectly={handlePayCommissionDirectly}
+            dealerProductPayouts={dealerProductPayouts}
+            onPayDealerProductSales={handlePayDealerProductSales}
             securityGateEnabled={securityGateEnabled}
             setSecurityGateEnabled={setSecurityGateEnabled}
             onSaveStoreSettings={async (newSettings) => {
               await updateStoreSettings(newSettings);
+              await recalculateDealerFinancials();
               setStoreSettings(previous => ({ ...previous, ...newSettings }));
             }}
             onDeleteDealer={async (id) => {
@@ -1219,8 +1324,14 @@ export default function App() {
                 throw new Error('Yeni bayi için Firebase Authentication şifresi gereklidir.');
               }
               const memberProfileId = await upsertDealerMemberProfile({ ...dealer, authUid: authAccount.uid });
-              const linkedDealer = { ...dealer, userId: authAccount.uid || memberProfileId };
+              const linkedDealer = {
+                ...dealer,
+                salesVolume: existingDealer?.salesVolume ?? dealer.salesVolume,
+                commissionEarned: existingDealer?.commissionEarned ?? dealer.commissionEarned,
+                userId: authAccount.uid || memberProfileId,
+              };
               await upsertDealer(linkedDealer);
+              await recalculateDealerFinancials();
               setDealers(previous => previous.map(item => item.id === linkedDealer.id ? linkedDealer : item));
               if (selectedDealer?.id === linkedDealer.id) {
                 setSelectedDealer(linkedDealer);
@@ -1370,45 +1481,6 @@ export default function App() {
         />
       )}
 
-      {/* Footer Branding + Yasal Künye */}
-      <footer className="bg-white border-t border-slate-200 py-8 text-xs text-slate-400 shrink-0">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-5 text-center md:text-left">
-          <div className="md:flex md:justify-between md:items-start gap-6 space-y-5 md:space-y-0">
-            <div className="md:flex-1 space-y-2">
-              <p className="font-semibold text-slate-600 font-display">
-                <p className="font-semibold text-slate-600 font-display">{storeSettings.storeName} E-Ticaret Platformu © 2026</p>
-              </p>
-              <p className="max-w-md mx-auto md:mx-0 leading-relaxed text-[10px]">
-                Bu platform kırtasiye esnaflarını desteklemek için geliştirilmiş bir MVP simülatörüdür. Görsel tasarım ve ciro hakediş mantığı gerçek zamanlı çalışmaktadır.
-              </p>
-              <div className="pt-1 text-[10px] text-slate-500 space-y-1.5 leading-relaxed">
-                <p className="text-slate-600 font-semibold text-[11px]">Yasal Bilgiler (Künye)</p>
-                <p><span className="font-medium text-slate-500">Şirket Ünvanı:</span> Efektif Teknoloji İç ve Dış Ticaret Limited Şirketi</p>
-                <p><span className="font-medium text-slate-500">Vergi Dairesi / Vergi No:</span> Topçumeydanı V.D. / 141 067 9040 0001</p>
-                <p><span className="font-medium text-slate-500">MERSİS / Ticaret Sicil No:</span> 0141067990400001 / 23529</p>
-                <p><span className="font-medium text-slate-500">Merkez Adres:</span> Yusufpaşa Mah. 886 Sk. Dünya İş Merkezi No: 15/C Eyyübiye / ŞANLIURFA</p>
-                <p><span className="font-medium text-slate-500">Sabit Telefon:</span> 0507 249 76 46</p>
-                <p><span className="font-medium text-slate-500">E-posta:</span> {storeSettings.contactEmail ? <a className="text-sky-600 hover:underline" href={`mailto:${storeSettings.contactEmail}`}>{storeSettings.contactEmail}</a> : 'bugurcagroup@gmail.com'}</p>
-              </div>
-            </div>
-            <div className="md:w-72 space-y-3 md:pt-2">
-                <p className="text-slate-600 font-semibold text-[11px]">Mevzuat ve Sözleşmeler</p>
-              <nav className="grid grid-cols-1 gap-1.5 text-[10px]">
-                    <a className="text-sky-600 hover:underline text-left" href="#mesafeli-satis">Mesafeli Satış Sözleşmesi</a>
-                    <a className="text-sky-600 hover:underline text-left" href="#on-bilgilendirme">Ön Bilgilendirme Formu</a>
-                    <a className="text-sky-600 hover:underline text-left" href="#iptal-iade">İptal ve İade Koşulları</a>
-                <a className="text-sky-600 hover:underline text-left" href="#kvkk">KVKK Aydınlatma Metni</a>
-                    <a className="text-sky-600 hover:underline text-left" href="#kargo-teslimat">Kargo ve Teslimat Koşulları</a>
-              </nav>
-              <div className="pt-1 text-[10px] text-slate-500 space-y-1">
-                <p className="text-slate-600 font-semibold text-[11px]">İletişim</p>
-                <p>{storeSettings.contactPhone ? <a className="text-sky-600 hover:underline" href={`tel:${storeSettings.contactPhone}`}>{storeSettings.contactPhone}</a> : 'Sabit telefon: Tedarik Edilecek'}</p>
-                <p>{storeSettings.contactEmail ? <a className="text-sky-600 hover:underline" href={`mailto:${storeSettings.contactEmail}`}>{storeSettings.contactEmail}</a> : 'E-posta: Tedarik Edilecek'}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }

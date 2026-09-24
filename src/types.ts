@@ -59,7 +59,7 @@ export interface Dealer {
   commissionEarned: number; // Sabit veya özel komisyon tutarı
   createdAt: string;
   commissionRate?: number; // Özel bayi komisyon oranı (%) - boş ise genel mağaza oranı kullanılır
-  privateCommissionRate?: number; // Esnafın kendi özel ürün sayfasından satılan ürünler için yöneticinin keseceği komisyon oranı (%)
+  privateCommissionRate?: number; // Esnafın kendi özel ürün sayfasından satılan ürünlerde bayiye verilecek komisyon oranı (%)
   adminSectorCommissionRate?: number; // Ortak havuz siparişleri için yöneticinin keseceği komisyon oranı (%)
   bankName?: string; // Banka adı
   accountHolder?: string; // Alıcı ad soyad / ünvan
@@ -99,6 +99,8 @@ export interface Member {
   legalAcceptances?: LegalAcceptance[];
 }
 
+export type ShippingStatus = 'preparing' | 'shipped' | 'delivered' | 'cancelled';
+
 export interface Order {
   id: string;
   dealerId: string;
@@ -111,7 +113,8 @@ export interface Order {
   customerPhone: string;
   items: OrderItem[];
   totalPrice: number;
-  commissionAmount: number; // Komisyon tutarı
+  commissionAmount: number; // Geriye dönük toplam komisyon alanı
+  dealerCommissionAmount?: number; // Siparişten doğan bayi hak edişi
   adminCommissionAmount?: number; // Yönetici komisyon tutarı (Sadece sektör alışverişlerinden)
   isFromDealerPage?: boolean; // Siparişin bayinin özel sayfasından yapılıp yapılmadığı
   selectedSector?: string; // Alışveriş yapılan sektör
@@ -127,7 +130,11 @@ export interface Order {
   shippingDistrict?: string; // Alıcı İlçesi
   shippingReceiver?: string; // Alıcı Ad Soyad
   shippingPhone?: string; // Alıcı Telefon No
-  shippingStatus?: 'preparing' | 'shipped' | 'delivered' | 'cancelled'; // Kargo Durumu
+  shippingStatus?: ShippingStatus; // Eski ve tek bayi siparişleri için kargo durumu
+  shippingStatusByDealer?: Record<string, ShippingStatus>; // Çok bayili siparişlerde bayi bazlı kargo durumu
+  shippingStatusByItem?: Record<string, ShippingStatus>; // Ürün sıra numarasına göre kargo durumu
+  shippingCompanyByItem?: Record<string, string>; // Ürün sıra numarasına göre kargo firması
+  shippingTrackingNumberByItem?: Record<string, string>; // Ürün sıra numarasına göre takip numarası
   customerDownloaded?: boolean; // Müşteri tarafından indirilip indirilmediği bilgisi
   orderReference?: string;
   memberId?: string;
@@ -244,7 +251,7 @@ export interface StoreSettings {
 
   // Yasal Künye (üye işyeri / banka denetiminde zorunlu) — Firestore settings/general üzerinden beslenir,
   // GitHub'da placeholder olarak durur; gerçek tüzel veri yalnızca Firestore dokümanında tutulur.
-  legalCompanyTitle?: string nederbörd;
+  legalCompanyTitle?: string;
   legalTaxOffice?: string;
   legalTaxNumber?: string;
   legalMersisNumber?: string;
@@ -275,4 +282,16 @@ export interface CommissionRequest {
   isDeleted?: boolean;
   deletedAt?: string;
   deletedBy?: string;
+}
+
+export type DealerTransactionType = 'commission' | 'payout' | 'dealer_product_payout';
+
+export interface DealerTransaction {
+  id: string;
+  dealerId: string;
+  amount: number;
+  type: DealerTransactionType;
+  date: string;
+  createdAt?: string;
+  note?: string;
 }

@@ -11,12 +11,15 @@
     "migrate:dealers:dry-run": "npm run build && node -e \"process.env.DRY_RUN='true'; import('./lib/migrateDealers.js')\""
   },
   "dependencies": {
+    "dotenv": "^18.0.3",
     "firebase-admin": "^13.5.0",
     "firebase-functions": "^7.3.2-rc.0",
+    "nodemailer": "^10.0.10",
     "sharp": "^0.35.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
+    "@types/nodemailer": "^8.0.2",
     "typescript": "^5.8.2"
   }
 }

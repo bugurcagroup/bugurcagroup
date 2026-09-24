@@ -14,16 +14,6 @@ export const calculateOrderFinancials = (
   isFromDealerPage: boolean,
 ): OrderFinancials => {
   const safeTotal = Math.max(0, Number(totalPrice) || 0);
-
-  if (isFromDealerPage) {
-    const adminRate = dealer.privateCommissionRate ?? 5;
-    const adminCommissionAmount = roundCurrency(safeTotal * adminRate / 100);
-    return {
-      adminCommissionAmount,
-      dealerCommissionAmount: roundCurrency(safeTotal - adminCommissionAmount),
-    };
-  }
-
   const dealerRate = dealer.commissionRate ?? storeSettings.commissionRate;
   const dealerCommissionAmount = roundCurrency(safeTotal * dealerRate / 100);
   return {
